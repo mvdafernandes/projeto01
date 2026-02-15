@@ -353,7 +353,17 @@ def pagina_investimentos() -> None:
     titulo_secao("Registros")
     st.dataframe(_format_table(df_periodo), width="stretch")
 
-    titulo_secao("Projeção de Juros Compostos (10 anos)")
+    anos_proj = int(
+        st.number_input(
+            "Horizonte da projeção com aportes (anos)",
+            min_value=1,
+            max_value=50,
+            step=1,
+            value=10,
+            key="inv_proj_horizonte_anos",
+        )
+    )
+    titulo_secao(f"Projeção de Juros Compostos ({anos_proj} anos)")
     patrimonio_atual = float(df_periodo.sort_values(by=["data", "id"]).iloc[-1]["patrimonio total"])
     media_aportes = _media_aportes_mensal(df_periodo)
 
@@ -380,7 +390,12 @@ def pagina_investimentos() -> None:
         f"média histórica mensal de aportes: {formatar_moeda(media_aportes)}"
     )
 
-    df_proj = _projecao_juros_compostos(patrimonio_atual, float(taxa_anual_pct), float(aporte_mensal_proj), anos=10)
+    df_proj = _projecao_juros_compostos(
+        patrimonio_atual,
+        float(taxa_anual_pct),
+        float(aporte_mensal_proj),
+        anos=anos_proj,
+    )
 
     proj_ano = (
         df_proj.groupby("ano", as_index=False)
@@ -409,7 +424,17 @@ def pagina_investimentos() -> None:
     fig_proj.update_layout(height=420, margin=dict(l=20, r=20, t=20, b=20))
     render_graph(fig_proj, height=420, show_legend=True)
 
-    titulo_secao("Projeção de Juros Compostos sem Novos Aportes (10 anos)")
+    anos_proj_sem_aporte = int(
+        st.number_input(
+            "Horizonte da projeção sem aportes (anos)",
+            min_value=1,
+            max_value=50,
+            step=1,
+            value=10,
+            key="inv_proj_horizonte_sem_aporte_anos",
+        )
+    )
+    titulo_secao(f"Projeção de Juros Compostos sem Novos Aportes ({anos_proj_sem_aporte} anos)")
     colu1, colu2 = st.columns(2)
     with colu1:
         taxa_anual_sem_aporte = st.number_input(
@@ -435,7 +460,7 @@ def pagina_investimentos() -> None:
     df_proj_sem_aporte = _projecao_sem_aportes(
         patrimonio_inicial=float(valor_unitario),
         taxa_anual_pct=float(taxa_anual_sem_aporte),
-        anos=10,
+        anos=anos_proj_sem_aporte,
     )
     proj_sem_aporte_ano = (
         df_proj_sem_aporte.groupby("ano", as_index=False)
