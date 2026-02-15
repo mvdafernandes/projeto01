@@ -12,7 +12,7 @@ class DespesasRepository(BaseRepository):
     """Data access for despesas table."""
 
     table_name = "despesas"
-    columns = ["id", "data", "categoria", "valor", "observacao"]
+    columns = ["id", "data", "categoria", "valor", "observacao", "tipo_despesa", "subcategoria_fixa"]
     numeric_columns = ["id", "valor"]
 
     def listar(self) -> pd.DataFrame:
@@ -41,11 +41,26 @@ class DespesasRepository(BaseRepository):
         conn.close()
         return self._normalize(df)
 
-    def inserir(self, data: str, categoria: str, valor: float, observacao: str = "") -> None:
+    def inserir(
+        self,
+        data: str,
+        categoria: str,
+        valor: float,
+        observacao: str = "",
+        tipo_despesa: str = "VARIAVEL",
+        subcategoria_fixa: str = "",
+    ) -> None:
         """Insert despesa."""
 
         model = Despesa.from_raw(
-            {"data": data, "categoria": categoria, "valor": valor, "observacao": observacao}
+            {
+                "data": data,
+                "categoria": categoria,
+                "valor": valor,
+                "observacao": observacao,
+                "tipo_despesa": tipo_despesa,
+                "subcategoria_fixa": subcategoria_fixa,
+            }
         )
         payload = model.to_record()
 
@@ -58,19 +73,35 @@ class DespesasRepository(BaseRepository):
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO despesas (data, categoria, valor, observacao)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO despesas (data, categoria, valor, observacao, tipo_despesa, subcategoria_fixa)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (model.data, model.categoria, model.valor, model.observacao),
+            (model.data, model.categoria, model.valor, model.observacao, model.tipo_despesa, model.subcategoria_fixa),
         )
         conn.commit()
         conn.close()
 
-    def atualizar(self, item_id: int, data: str, categoria: str, valor: float, observacao: str) -> None:
+    def atualizar(
+        self,
+        item_id: int,
+        data: str,
+        categoria: str,
+        valor: float,
+        observacao: str,
+        tipo_despesa: str = "VARIAVEL",
+        subcategoria_fixa: str = "",
+    ) -> None:
         """Update despesa."""
 
         model = Despesa.from_raw(
-            {"data": data, "categoria": categoria, "valor": valor, "observacao": observacao}
+            {
+                "data": data,
+                "categoria": categoria,
+                "valor": valor,
+                "observacao": observacao,
+                "tipo_despesa": tipo_despesa,
+                "subcategoria_fixa": subcategoria_fixa,
+            }
         )
         payload = model.to_record()
 
@@ -84,10 +115,18 @@ class DespesasRepository(BaseRepository):
         cursor.execute(
             """
             UPDATE despesas
-            SET data = ?, categoria = ?, valor = ?, observacao = ?
+            SET data = ?, categoria = ?, valor = ?, observacao = ?, tipo_despesa = ?, subcategoria_fixa = ?
             WHERE id = ?
             """,
-            (model.data, model.categoria, model.valor, model.observacao, int(item_id)),
+            (
+                model.data,
+                model.categoria,
+                model.valor,
+                model.observacao,
+                model.tipo_despesa,
+                model.subcategoria_fixa,
+                int(item_id),
+            ),
         )
         conn.commit()
         conn.close()
