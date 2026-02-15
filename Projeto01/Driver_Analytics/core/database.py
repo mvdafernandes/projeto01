@@ -80,7 +80,9 @@ def init_sqlite_schema() -> None:
             data TEXT NOT NULL,
             categoria TEXT NOT NULL,
             valor REAL NOT NULL,
-            observacao TEXT
+            observacao TEXT,
+            tipo_despesa TEXT NOT NULL DEFAULT 'VARIAVEL',
+            subcategoria_fixa TEXT
         )
         """
     )
@@ -111,6 +113,10 @@ def init_sqlite_schema() -> None:
         cursor.execute("ALTER TABLE investimentos ADD COLUMN data_fim TEXT")
     if not _sqlite_column_exists(cursor, "investimentos", "tipo_movimentacao"):
         cursor.execute("ALTER TABLE investimentos ADD COLUMN tipo_movimentacao TEXT")
+    if not _sqlite_column_exists(cursor, "despesas", "tipo_despesa"):
+        cursor.execute("ALTER TABLE despesas ADD COLUMN tipo_despesa TEXT NOT NULL DEFAULT 'VARIAVEL'")
+    if not _sqlite_column_exists(cursor, "despesas", "subcategoria_fixa"):
+        cursor.execute("ALTER TABLE despesas ADD COLUMN subcategoria_fixa TEXT")
 
     cursor.execute("UPDATE investimentos SET data_inicio = COALESCE(data_inicio, data)")
     cursor.execute("UPDATE investimentos SET data_fim = COALESCE(data_fim, data)")
@@ -127,6 +133,7 @@ def init_sqlite_schema() -> None:
         )
         """
     )
+    cursor.execute("UPDATE despesas SET tipo_despesa = COALESCE(tipo_despesa, 'VARIAVEL')")
 
     # Auth users table for local fallback mode.
     cursor.execute(
