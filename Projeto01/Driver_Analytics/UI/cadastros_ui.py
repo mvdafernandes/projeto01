@@ -59,6 +59,21 @@ def _categorias_por_esfera(esfera_label: str) -> list[str]:
     return DESPESAS_CATEGORIAS_NEGOCIO
 
 
+def _sync_categoria_despesa_por_esfera() -> None:
+    esfera_label = str(st.session_state.get("cad_despesa_esfera", "Negócio"))
+    categorias = _categorias_por_esfera(esfera_label)
+    categoria_default = "Outros" if "Outros" in categorias else (categorias[0] if categorias else "")
+    ultima_esfera = str(st.session_state.get("cad_despesa_last_esfera", ""))
+    categoria_atual = str(st.session_state.get("cad_despesa_categoria_select", ""))
+
+    if esfera_label != ultima_esfera:
+        st.session_state["cad_despesa_categoria_select"] = categoria_default
+    elif categoria_atual not in categorias:
+        st.session_state["cad_despesa_categoria_select"] = categoria_default
+
+    st.session_state["cad_despesa_last_esfera"] = esfera_label
+
+
 def _safe_date_or_none(value):
     parsed = pd.to_datetime(value, errors="coerce")
     if pd.isna(parsed):
@@ -121,6 +136,7 @@ def _set_despesa_fields(row: pd.Series | None) -> None:
     esfera_key = esfera_raw.strip().upper() if esfera_raw.strip().upper() in ESFERAS_DESPESA_LABELS else "NEGOCIO"
     esfera_label = ESFERAS_DESPESA_LABELS[esfera_key]
     st.session_state["cad_despesa_esfera"] = esfera_label
+    st.session_state["cad_despesa_last_esfera"] = esfera_label
     categorias_validas = _categorias_por_esfera(esfera_label)
     categoria = str(row["categoria"]) if row is not None else "Outros"
     st.session_state["cad_despesa_categoria_select"] = (
@@ -365,16 +381,15 @@ def pagina_cadastros() -> None:
             key="cad_despesa_selected_id",
         )
         _sync_edit_state(df_despesas, "cad_despesa_selected_id", "cad_despesa_last_selected_id", _set_despesa_fields)
+        st.selectbox(
+            "Escopo da despesa",
+            options=ESFERAS_DESPESA_OPTIONS,
+            key="cad_despesa_esfera",
+        )
+        _sync_categoria_despesa_por_esfera()
+        categorias_despesa = _categorias_por_esfera(str(st.session_state.get("cad_despesa_esfera", "Negócio")))
 
         with st.form("cad_despesa_form"):
-            esfera_despesa_label = st.selectbox(
-                "Escopo da despesa",
-                options=ESFERAS_DESPESA_OPTIONS,
-                key="cad_despesa_esfera",
-            )
-            categorias_despesa = _categorias_por_esfera(esfera_despesa_label)
-            if st.session_state.get("cad_despesa_categoria_select") not in categorias_despesa:
-                st.session_state["cad_despesa_categoria_select"] = "Outros"
             data = st.date_input("Data", key="cad_despesa_data")
             categoria_escolhida = st.selectbox(
                 "Categoria",
@@ -410,6 +425,7 @@ def pagina_cadastros() -> None:
                 "Recorrente": "RECORRENTE",
                 "Fixa": "FIXA",
             }.get(str(tipo_despesa_label), "VARIAVEL")
+            esfera_despesa_label = str(st.session_state.get("cad_despesa_esfera", "Negócio"))
             esfera_despesa = {
                 "Negócio": "NEGOCIO",
                 "Pessoal": "PESSOAL",
@@ -439,7 +455,7 @@ def pagina_cadastros() -> None:
                             "cad_despesa_selected_id", "cad_despesa_last_selected_id", "cad_despesa_data",
                             "cad_despesa_categoria_select", "cad_despesa_valor",
                             "cad_despesa_obs", "cad_despesa_confirmar_exclusao",
-                            "cad_despesa_tipo", "cad_despesa_esfera", "cad_despesa_subcategoria_fixa",
+                            "cad_despesa_tipo", "cad_despesa_esfera", "cad_despesa_last_esfera", "cad_despesa_subcategoria_fixa",
                         ])
                         st.rerun()
 
