@@ -190,8 +190,9 @@ def _set_invest_retirada_fields(row: pd.Series | None) -> None:
 
 def _sync_edit_state(df: pd.DataFrame, select_key: str, last_key: str, setter) -> int | None:
     selected_id = st.session_state.get(select_key)
+    has_last = last_key in st.session_state
     last_selected = st.session_state.get(last_key)
-    if selected_id != last_selected:
+    if (not has_last) or (selected_id != last_selected):
         setter(_get_row_by_id(df, selected_id))
         st.session_state[last_key] = selected_id
     return selected_id
@@ -580,7 +581,7 @@ def pagina_cadastros() -> None:
                             _reset_fields([
                                 "cad_inv_aporte_selected_id", "cad_inv_aporte_last_selected_id", "cad_inv_aporte_data",
                                 "cad_inv_aporte_categoria", "cad_inv_aporte_valor", "cad_inv_aporte_confirmar_exclusao",
-                                "cad_inv_aporte_rendimento_zero", "cad_inv_aporte_patrimonio_preview",
+                                "cad_inv_aporte_rendimento_zero", "cad_inv_aporte_patrimonio_preview", "cad_inv_aporte_patrimonio",
                             ])
                             st.rerun()
 
@@ -691,6 +692,7 @@ def pagina_cadastros() -> None:
                                 "cad_inv_rend_data_inicio", "cad_inv_rend_data_fim",
                                 "cad_inv_rend_rendimento", "cad_inv_rend_confirmar_exclusao",
                                 "cad_inv_rend_aporte_zero", "cad_inv_rend_patrimonio_preview",
+                                "cad_inv_rend_categoria", "cad_inv_rend_patrimonio",
                             ])
                             st.rerun()
 
@@ -802,8 +804,9 @@ def pagina_cadastros() -> None:
                             st.success("Retirada salva com sucesso.")
                             _reset_fields([
                                 "cad_inv_ret_selected_id", "cad_inv_ret_last_selected_id",
-                                "cad_inv_ret_data", "cad_inv_ret_valor",
+                                "cad_inv_ret_data", "cad_inv_ret_valor", "cad_inv_ret_categoria",
                                 "cad_inv_ret_confirmar_exclusao", "cad_inv_ret_rendimento_zero", "cad_inv_ret_patrimonio_preview",
+                                "cad_inv_ret_patrimonio",
                             ])
                             st.rerun()
 
