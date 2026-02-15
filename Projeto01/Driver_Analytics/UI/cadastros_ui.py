@@ -25,6 +25,7 @@ DESPESAS_CATEGORIAS_NEGOCIO = sorted(
         "Multas",
         "Pedágio",
         "Seguro",
+        "Telefonia",
     ]
 )
 DESPESAS_CATEGORIAS_PESSOAL = sorted(
