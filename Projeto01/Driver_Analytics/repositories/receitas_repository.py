@@ -89,6 +89,23 @@ class ReceitasRepository(BaseRepository):
         client = self._supabase()
         if client:
             client.table(self.table_name).update(payload).eq("id", int(item_id)).execute()
+
+            # Defensive verification: in some Supabase/RLS setups UPDATE can be silently ignored.
+            check = client.table(self.table_name).select("*").eq("id", int(item_id)).limit(1).execute().data
+            if not check:
+                raise ValueError("Registro não encontrado para atualização no Supabase.")
+            atual = self._normalize(pd.DataFrame(check)).iloc[0]
+            ok = (
+                str(atual.get("data", "")) == str(model.data)
+                and abs(float(atual.get("valor", 0.0)) - float(model.valor)) < 1e-9
+                and abs(float(atual.get("km", 0.0)) - float(model.km)) < 1e-9
+                and int(atual.get("tempo trabalhado", 0)) == int(model.tempo_trabalhado)
+                and str(atual.get("observacao", "")) == str(model.observacao)
+            )
+            if not ok:
+                raise ValueError(
+                    "Atualização não aplicada no Supabase. Verifique permissões de UPDATE (RLS/policies)."
+                )
             return
 
         conn = self._sqlite()
