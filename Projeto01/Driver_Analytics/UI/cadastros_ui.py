@@ -25,6 +25,12 @@ DESPESAS_CATEGORIAS_PREDEFINIDAS = [
     "Faturas de Cartão",
     "Outros",
 ]
+TIPOS_DESPESA_LABELS = {
+    "VARIAVEL": "Variável",
+    "RECORRENTE": "Recorrente",
+    "FIXA": "Fixa",
+}
+TIPOS_DESPESA_OPTIONS = list(TIPOS_DESPESA_LABELS.values())
 
 
 def _safe_date_or_none(value):
@@ -88,6 +94,10 @@ def _set_despesa_fields(row: pd.Series | None) -> None:
     )
     st.session_state["cad_despesa_valor"] = float(row["valor"]) if row is not None else 0.0
     st.session_state["cad_despesa_obs"] = str(row.get("observacao", "")) if row is not None else ""
+    tipo_raw = str(row.get("tipo_despesa", "VARIAVEL")) if row is not None else "VARIAVEL"
+    tipo_key = tipo_raw.strip().upper() if tipo_raw.strip().upper() in TIPOS_DESPESA_LABELS else "VARIAVEL"
+    st.session_state["cad_despesa_tipo"] = TIPOS_DESPESA_LABELS[tipo_key]
+    st.session_state["cad_despesa_subcategoria_fixa"] = str(row.get("subcategoria_fixa", "")) if row is not None else ""
     st.session_state["cad_despesa_confirmar_exclusao"] = False
 
 
@@ -332,6 +342,18 @@ def pagina_cadastros() -> None:
                 options=DESPESAS_CATEGORIAS_PREDEFINIDAS,
                 key="cad_despesa_categoria_select",
             )
+            tipo_despesa_label = st.selectbox(
+                "Tipo de despesa",
+                options=TIPOS_DESPESA_OPTIONS,
+                key="cad_despesa_tipo",
+            )
+            subcategoria_fixa = ""
+            if str(tipo_despesa_label).strip().lower() == "fixa":
+                subcategoria_fixa = st.text_input(
+                    "Subcategoria da conta fixa",
+                    key="cad_despesa_subcategoria_fixa",
+                    placeholder="Ex.: Aluguel, Internet, Energia",
+                )
             valor = st.number_input("Valor", min_value=0.0, key="cad_despesa_valor")
             observacao = st.text_input("Observação", key="cad_despesa_obs")
             confirmar_exclusao = st.checkbox("Confirmo a exclusão deste registro", key="cad_despesa_confirmar_exclusao")
@@ -344,6 +366,12 @@ def pagina_cadastros() -> None:
             selected_id = st.session_state.get("cad_despesa_selected_id")
             data_valida = _safe_date_or_none(data)
             categoria_escolhida = str(categoria_escolhida).strip()
+            tipo_despesa = {
+                "Variável": "VARIAVEL",
+                "Recorrente": "RECORRENTE",
+                "Fixa": "FIXA",
+            }.get(str(tipo_despesa_label), "VARIAVEL")
+            subcategoria_fixa = str(subcategoria_fixa or "").strip()
 
             try:
                 if salvar:
@@ -351,13 +379,23 @@ def pagina_cadastros() -> None:
                         st.warning("Selecione uma data válida.")
                     elif not categoria_escolhida:
                         st.warning("Informe uma nova categoria ou selecione uma existente.")
+                    elif tipo_despesa == "FIXA" and not subcategoria_fixa and not str(observacao).strip():
+                        st.warning("Para despesa fixa, informe subcategoria fixa ou observação.")
                     else:
-                        service.criar_despesa(data_valida.isoformat(), categoria_escolhida, float(valor), observacao)
+                        service.criar_despesa(
+                            data_valida.isoformat(),
+                            categoria_escolhida,
+                            float(valor),
+                            observacao,
+                            tipo_despesa=tipo_despesa,
+                            subcategoria_fixa=subcategoria_fixa,
+                        )
                         st.success("Despesa salva com sucesso.")
                         _reset_fields([
                             "cad_despesa_selected_id", "cad_despesa_last_selected_id", "cad_despesa_data",
                             "cad_despesa_categoria_select", "cad_despesa_valor",
                             "cad_despesa_obs", "cad_despesa_confirmar_exclusao",
+                            "cad_despesa_tipo", "cad_despesa_subcategoria_fixa",
                         ])
                         st.rerun()
 
@@ -368,8 +406,18 @@ def pagina_cadastros() -> None:
                         st.warning("Selecione uma data válida.")
                     elif not categoria_escolhida:
                         st.warning("Informe uma nova categoria ou selecione uma existente.")
+                    elif tipo_despesa == "FIXA" and not subcategoria_fixa and not str(observacao).strip():
+                        st.warning("Para despesa fixa, informe subcategoria fixa ou observação.")
                     else:
-                        service.atualizar_despesa(int(selected_id), data_valida.isoformat(), categoria_escolhida, float(valor), observacao)
+                        service.atualizar_despesa(
+                            int(selected_id),
+                            data_valida.isoformat(),
+                            categoria_escolhida,
+                            float(valor),
+                            observacao,
+                            tipo_despesa=tipo_despesa,
+                            subcategoria_fixa=subcategoria_fixa,
+                        )
                         st.success("Despesa atualizada com sucesso.")
                         st.rerun()
 
