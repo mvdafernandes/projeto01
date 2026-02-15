@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from services.dashboard_service import DashboardService
@@ -10,6 +11,8 @@ from UI.components import format_currency, formatar_moeda, render_kpi, show_empt
 
 
 service = DashboardService()
+ESFERA_LABEL_MAP = {"NEGOCIO": "Negócio", "PESSOAL": "Pessoal"}
+ESFERA_COLOR_MAP = {"Negócio": "#1f77b4", "Pessoal": "#ff7f0e"}
 
 
 def _normalizar_tipo_despesa(df: pd.DataFrame) -> pd.DataFrame:
@@ -142,11 +145,27 @@ def pagina_despesas() -> None:
         render_kpi("Recorrentes pessoais", format_currency(total_rec_pessoal))
 
     titulo_secao("Por categoria")
-    categoria = service.metrics.despesa_por_categoria(df_filtrado)
-    if categoria.empty:
+    if df_filtrado.empty:
         show_empty_data()
     else:
-        st.bar_chart(categoria)
+        categoria_plot = df_filtrado.copy()
+        categoria_plot["valor"] = pd.to_numeric(categoria_plot["valor"], errors="coerce").fillna(0.0)
+        categoria_plot = (
+            categoria_plot.groupby(["categoria", "esfera_despesa"], as_index=False)["valor"]
+            .sum()
+            .sort_values(by="valor", ascending=False)
+        )
+        categoria_plot["esfera"] = categoria_plot["esfera_despesa"].map(ESFERA_LABEL_MAP).fillna("Negócio")
+        fig_categoria = px.bar(
+            categoria_plot,
+            x="categoria",
+            y="valor",
+            color="esfera",
+            barmode="group",
+            color_discrete_map=ESFERA_COLOR_MAP,
+            labels={"categoria": "Categoria", "valor": "Valor", "esfera": "Escopo"},
+        )
+        st.plotly_chart(fig_categoria, use_container_width=True)
 
     titulo_secao("Distribuição Negócio x Pessoal")
     esfera = (
@@ -157,8 +176,16 @@ def pagina_despesas() -> None:
     if esfera.empty:
         show_empty_data("Sem despesas no período selecionado.")
     else:
-        esfera["esfera_despesa"] = esfera["esfera_despesa"].map({"NEGOCIO": "Negócio", "PESSOAL": "Pessoal"})
-        st.bar_chart(esfera.set_index("esfera_despesa")["valor"])
+        esfera["esfera"] = esfera["esfera_despesa"].map(ESFERA_LABEL_MAP).fillna("Negócio")
+        fig_esfera = px.bar(
+            esfera,
+            x="esfera",
+            y="valor",
+            color="esfera",
+            color_discrete_map=ESFERA_COLOR_MAP,
+            labels={"esfera": "Escopo", "valor": "Valor"},
+        )
+        st.plotly_chart(fig_esfera, use_container_width=True)
 
     titulo_secao("Contas Fixas por Subcategoria")
     fixas = df_filtrado[df_filtrado["tipo_despesa"] == "FIXA"].copy()
@@ -180,8 +207,18 @@ def pagina_despesas() -> None:
         with cols_fixas[1]:
             render_kpi("Subcategorias fixas", int(grupo.shape[0]))
 
-        plot = grupo.set_index("subcat")["valor"]
-        st.bar_chart(plot)
+        fixas_plot = fixas.groupby(["subcat", "esfera_despesa"], as_index=False)["valor"].sum()
+        fixas_plot["esfera"] = fixas_plot["esfera_despesa"].map(ESFERA_LABEL_MAP).fillna("Negócio")
+        fig_fixas = px.bar(
+            fixas_plot,
+            x="subcat",
+            y="valor",
+            color="esfera",
+            barmode="group",
+            color_discrete_map=ESFERA_COLOR_MAP,
+            labels={"subcat": "Subcategoria", "valor": "Valor", "esfera": "Escopo"},
+        )
+        st.plotly_chart(fig_fixas, use_container_width=True)
         tabela_fixas = grupo.copy()
         tabela_fixas["valor"] = tabela_fixas["valor"].apply(formatar_moeda)
         tabela_fixas["percentual"] = tabela_fixas["percentual"].map(lambda x: f"{x:.1f}%")
