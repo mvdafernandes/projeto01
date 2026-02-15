@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import date
+import secrets
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import streamlit as st
@@ -46,6 +47,12 @@ def _users_path() -> str:
     base_dir = os.path.dirname(os.path.dirname(__file__))
     rel_path = get_settings().users_file
     return os.path.join(base_dir, rel_path)
+
+
+def _sessions_path() -> str:
+    users = _users_path()
+    base_dir = os.path.dirname(users)
+    return os.path.join(base_dir, "sessions.json")
 
 
 def _hash_text(value: str) -> str:
@@ -113,6 +120,103 @@ def _json_save_users(users: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as file:
         json.dump(users, file, ensure_ascii=False, indent=2)
+
+
+def _json_load_sessions() -> dict[str, Any]:
+    path = _sessions_path()
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            raw = json.load(file)
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
+def _json_save_sessions(sessions: dict[str, Any]) -> None:
+    path = _sessions_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(sessions, file, ensure_ascii=False, indent=2)
+
+
+def _cleanup_expired_sessions(sessions: dict[str, Any]) -> dict[str, Any]:
+    now = datetime.utcnow()
+    cleaned: dict[str, Any] = {}
+    for token, payload in sessions.items():
+        if not isinstance(payload, dict):
+            continue
+        username = str(payload.get("username", "")).strip()
+        expires_at = str(payload.get("expires_at", "")).strip()
+        if not username or not expires_at:
+            continue
+        try:
+            expiry = datetime.fromisoformat(expires_at)
+        except Exception:
+            continue
+        if expiry > now:
+            cleaned[token] = {"username": username, "expires_at": expiry.isoformat()}
+    return cleaned
+
+
+def _create_session_token(username: str, ttl_days: int = 30) -> str:
+    sessions = _cleanup_expired_sessions(_json_load_sessions())
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.utcnow() + timedelta(days=int(ttl_days))).isoformat()
+    sessions[token] = {"username": _normalize_username(username), "expires_at": expires_at}
+    _json_save_sessions(sessions)
+    return token
+
+
+def _resolve_session_token(token: str) -> str:
+    token_norm = str(token or "").strip()
+    if not token_norm:
+        return ""
+    sessions = _cleanup_expired_sessions(_json_load_sessions())
+    payload = sessions.get(token_norm)
+    _json_save_sessions(sessions)
+    if not isinstance(payload, dict):
+        return ""
+    return _normalize_username(payload.get("username", ""))
+
+
+def _revoke_session_token(token: str) -> None:
+    token_norm = str(token or "").strip()
+    if not token_norm:
+        return
+    sessions = _cleanup_expired_sessions(_json_load_sessions())
+    if token_norm in sessions:
+        del sessions[token_norm]
+    _json_save_sessions(sessions)
+
+
+def _get_query_session_token() -> str:
+    try:
+        token = st.query_params.get("session")
+    except Exception:
+        return ""
+    if isinstance(token, list):
+        return str(token[0]).strip() if token else ""
+    return str(token or "").strip()
+
+
+def _set_query_session_token(token: str) -> None:
+    token_norm = str(token or "").strip()
+    if not token_norm:
+        return
+    try:
+        st.query_params["session"] = token_norm
+    except Exception:
+        pass
+
+
+def _clear_query_session_token() -> None:
+    try:
+        if "session" in st.query_params:
+            del st.query_params["session"]
+    except Exception:
+        pass
 
 
 def _json_get_user(username: str) -> dict[str, Any] | None:
@@ -492,6 +596,16 @@ def login_required() -> bool:
         st.session_state.authenticated = False
     if "current_user" not in st.session_state:
         st.session_state.current_user = ""
+    if "session_token" not in st.session_state:
+        st.session_state.session_token = ""
+
+    if not st.session_state.authenticated:
+        token_from_query = _get_query_session_token()
+        user_from_token = _resolve_session_token(token_from_query)
+        if user_from_token:
+            st.session_state.authenticated = True
+            st.session_state.current_user = user_from_token
+            st.session_state.session_token = token_from_query
 
     if st.session_state.authenticated:
         return True
@@ -515,6 +629,9 @@ def login_required() -> bool:
                         st.warning("Aviso: bcrypt indisponível para migrar a senha para o padrão seguro.")
                 st.session_state.authenticated = True
                 st.session_state.current_user = str(auth_user.get("username", _normalize_username(username)))
+                session_token = _create_session_token(st.session_state.current_user)
+                st.session_state.session_token = session_token
+                _set_query_session_token(session_token)
                 st.success("Login realizado.")
                 st.rerun()
             else:
@@ -660,8 +777,11 @@ def login_required() -> bool:
 def render_logout_button() -> None:
     with st.sidebar:
         if st.button("Sair"):
+            _revoke_session_token(st.session_state.get("session_token", ""))
+            _clear_query_session_token()
             st.session_state.authenticated = False
             st.session_state.current_user = ""
+            st.session_state.session_token = ""
             st.rerun()
 
 
