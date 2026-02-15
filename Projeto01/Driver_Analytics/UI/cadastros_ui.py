@@ -140,6 +140,12 @@ def _sync_edit_state(df: pd.DataFrame, select_key: str, last_key: str, setter) -
     return selected_id
 
 
+def _ensure_selected_option(select_key: str, options: list[int | None]) -> None:
+    current = st.session_state.get(select_key)
+    if current not in options:
+        st.session_state[select_key] = options[0] if options else None
+
+
 def _receita_label(df: pd.DataFrame, item_id: int | None) -> str:
     if item_id is None:
         return "Novo registro"
@@ -239,10 +245,15 @@ def pagina_cadastros() -> None:
             df_receitas = df_receitas.sort_values(by="id", ascending=False)
         options = [None] + (df_receitas["id"].astype(int).tolist() if "id" in df_receitas.columns else [])
 
-        with st.form("cad_receita_form"):
-            st.selectbox("Registro", options=options, format_func=lambda x: _receita_label(df_receitas, x), key="cad_receita_selected_id")
-            _sync_edit_state(df_receitas, "cad_receita_selected_id", "cad_receita_last_selected_id", _set_receita_fields)
+        st.selectbox(
+            "Registro",
+            options=options,
+            format_func=lambda x: _receita_label(df_receitas, x),
+            key="cad_receita_selected_id",
+        )
+        _sync_edit_state(df_receitas, "cad_receita_selected_id", "cad_receita_last_selected_id", _set_receita_fields)
 
+        with st.form("cad_receita_form"):
             data = st.date_input("Data", key="cad_receita_data")
             valor = st.number_input("Valor", min_value=0.0, key="cad_receita_valor")
             km = st.number_input("KM", min_value=0.0, key="cad_receita_km")
@@ -306,10 +317,15 @@ def pagina_cadastros() -> None:
             df_despesas = df_despesas.sort_values(by="id", ascending=False)
         options = [None] + (df_despesas["id"].astype(int).tolist() if "id" in df_despesas.columns else [])
 
-        with st.form("cad_despesa_form"):
-            st.selectbox("Registro", options=options, format_func=lambda x: _despesa_label(df_despesas, x), key="cad_despesa_selected_id")
-            _sync_edit_state(df_despesas, "cad_despesa_selected_id", "cad_despesa_last_selected_id", _set_despesa_fields)
+        st.selectbox(
+            "Registro",
+            options=options,
+            format_func=lambda x: _despesa_label(df_despesas, x),
+            key="cad_despesa_selected_id",
+        )
+        _sync_edit_state(df_despesas, "cad_despesa_selected_id", "cad_despesa_last_selected_id", _set_despesa_fields)
 
+        with st.form("cad_despesa_form"):
             data = st.date_input("Data", key="cad_despesa_data")
             categoria_escolhida = st.selectbox(
                 "Categoria",
@@ -401,15 +417,16 @@ def pagina_cadastros() -> None:
         with sub_aportes:
             st.caption("Aportes só incrementam patrimônio. Neste formulário o rendimento é sempre zero.")
             options_aporte = [None] + (df_aportes["id"].astype(int).tolist() if "id" in df_aportes.columns else [])
-            with st.form("cad_invest_aporte_form"):
-                st.selectbox(
-                    "Registro de aporte",
-                    options=options_aporte,
-                    format_func=lambda x: _investimento_aporte_label(df_aportes, x),
-                    key="cad_inv_aporte_selected_id",
-                )
-                _sync_edit_state(df_aportes, "cad_inv_aporte_selected_id", "cad_inv_aporte_last_selected_id", _set_invest_aporte_fields)
+            _ensure_selected_option("cad_inv_aporte_selected_id", options_aporte)
+            st.selectbox(
+                "Registro de aporte",
+                options=options_aporte,
+                format_func=lambda x: _investimento_aporte_label(df_aportes, x),
+                key="cad_inv_aporte_selected_id",
+            )
+            _sync_edit_state(df_aportes, "cad_inv_aporte_selected_id", "cad_inv_aporte_last_selected_id", _set_invest_aporte_fields)
 
+            with st.form("cad_invest_aporte_form"):
                 data = st.date_input("Data", key="cad_inv_aporte_data")
                 categoria = st.selectbox("Categoria", options=categorias_invest, key="cad_inv_aporte_categoria")
                 aporte = st.number_input("Valor do aporte", min_value=0.0, key="cad_inv_aporte_valor")
@@ -500,20 +517,20 @@ def pagina_cadastros() -> None:
             categorias_r = INVEST_CATEGORIAS.copy()
             if categoria_r not in categorias_r:
                 categorias_r.append(categoria_r)
+            st.selectbox("Categoria", options=categorias_r, key="cad_inv_rend_categoria")
+            categoria_sel = str(st.session_state.get("cad_inv_rend_categoria", "Renda Fixa"))
+            df_rend = df_rendimentos[df_rendimentos["categoria"].astype(str) == categoria_sel] if not df_rendimentos.empty else pd.DataFrame()
+            options_r = [None] + (df_rend["id"].astype(int).tolist() if "id" in df_rend.columns else [])
+            _ensure_selected_option("cad_inv_rend_selected_id", options_r)
+            st.selectbox(
+                "Registro de patrimônio/rendimento",
+                options=options_r,
+                format_func=lambda x: _investimento_rendimento_label(df_rend, x),
+                key="cad_inv_rend_selected_id",
+            )
+            _sync_edit_state(df_rend, "cad_inv_rend_selected_id", "cad_inv_rend_last_selected_id", _set_invest_rendimento_fields)
 
             with st.form("cad_invest_rendimento_form"):
-                categoria_sel = st.selectbox("Categoria", options=categorias_r, key="cad_inv_rend_categoria")
-                df_rend = df_rendimentos[df_rendimentos["categoria"].astype(str) == categoria_sel] if not df_rendimentos.empty else pd.DataFrame()
-                options_r = [None] + (df_rend["id"].astype(int).tolist() if "id" in df_rend.columns else [])
-
-                st.selectbox(
-                    "Registro de patrimônio/rendimento",
-                    options=options_r,
-                    format_func=lambda x: _investimento_rendimento_label(df_rend, x),
-                    key="cad_inv_rend_selected_id",
-                )
-                _sync_edit_state(df_rend, "cad_inv_rend_selected_id", "cad_inv_rend_last_selected_id", _set_invest_rendimento_fields)
-
                 col_data_ini, col_data_fim = st.columns(2)
                 with col_data_ini:
                     data_r_inicio = st.date_input("Data inicial do recorte", key="cad_inv_rend_data_inicio")
@@ -616,19 +633,21 @@ def pagina_cadastros() -> None:
                 categorias_ret.append(categoria_ret)
 
             options_ret = [None] + (df_retiradas["id"].astype(int).tolist() if "id" in df_retiradas.columns else [])
+            _ensure_selected_option("cad_inv_ret_selected_id", options_ret)
+            st.selectbox(
+                "Registro de retirada",
+                options=options_ret,
+                format_func=lambda x: _investimento_retirada_label(df_retiradas, x),
+                key="cad_inv_ret_selected_id",
+            )
+            _sync_edit_state(
+                df_retiradas,
+                "cad_inv_ret_selected_id",
+                "cad_inv_ret_last_selected_id",
+                _set_invest_retirada_fields,
+            )
+
             with st.form("cad_invest_retirada_form"):
-                st.selectbox(
-                    "Registro de retirada",
-                    options=options_ret,
-                    format_func=lambda x: _investimento_retirada_label(df_retiradas, x),
-                    key="cad_inv_ret_selected_id",
-                )
-                _sync_edit_state(
-                    df_retiradas,
-                    "cad_inv_ret_selected_id",
-                    "cad_inv_ret_last_selected_id",
-                    _set_invest_retirada_fields,
-                )
                 data_ret = st.date_input("Data da retirada", key="cad_inv_ret_data")
                 categoria_ret_sel = st.selectbox("Categoria", options=categorias_ret, key="cad_inv_ret_categoria")
                 retirada = st.number_input("Valor da retirada", min_value=0.0, key="cad_inv_ret_valor")
