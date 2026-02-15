@@ -45,6 +45,8 @@ class Despesa:
     categoria: str
     valor: float
     observacao: str = ""
+    tipo_despesa: str = "VARIAVEL"
+    subcategoria_fixa: str = ""
 
     @classmethod
     def from_raw(cls, payload: dict) -> "Despesa":
@@ -55,6 +57,8 @@ class Despesa:
             categoria=sanitize_nullable_text(payload.get("categoria", "")),
             valor=safe_float(payload.get("valor"), 0.0),
             observacao=sanitize_nullable_text(payload.get("observacao", "")),
+            tipo_despesa=sanitize_nullable_text(payload.get("tipo_despesa", "VARIAVEL")).upper() or "VARIAVEL",
+            subcategoria_fixa=sanitize_nullable_text(payload.get("subcategoria_fixa", "")),
         )
 
     def to_record(self) -> dict:
