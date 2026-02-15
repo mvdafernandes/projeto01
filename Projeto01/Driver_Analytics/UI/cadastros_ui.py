@@ -172,7 +172,10 @@ def _set_invest_rendimento_fields(row: pd.Series | None) -> None:
     data_fim = _date_or_today((row.get("data_fim") if row is not None else None) or (row["data"] if row is not None else None))
     st.session_state["cad_inv_rend_data_inicio"] = data_inicio
     st.session_state["cad_inv_rend_data_fim"] = data_fim
-    st.session_state["cad_inv_rend_categoria"] = str(row.get("categoria", "Renda Fixa")) if row is not None else "Renda Fixa"
+    # Avoid mutating a key bound to an already-rendered widget in the same run.
+    # The category selector is rendered before this setter is called.
+    if "cad_inv_rend_categoria" not in st.session_state:
+        st.session_state["cad_inv_rend_categoria"] = str(row.get("categoria", "Renda Fixa")) if row is not None else "Renda Fixa"
     st.session_state["cad_inv_rend_rendimento"] = float(row["rendimento"]) if row is not None else 0.0
     st.session_state["cad_inv_rend_patrimonio"] = float(row["patrimonio total"]) if row is not None else 0.0
     st.session_state["cad_inv_rend_confirmar_exclusao"] = False
