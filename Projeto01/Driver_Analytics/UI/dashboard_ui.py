@@ -112,7 +112,11 @@ def pagina_dashboard() -> None:
     df_despesas_f = _apply_period(df_despesas, data_col_despesas, start_ts, end_ts)
 
     titulo_secao("Resumo do Período")
-    st.caption("Receita, despesa e lucro mostram valores do intervalo filtrado; margem e indicadores por KM são calculados a partir desse mesmo período.")
+    st.caption(
+        "Receita total: soma das receitas do período. Despesa total: soma das despesas do período. "
+        "Lucro: receita menos despesa. Margem: percentual do lucro sobre a receita total. "
+        "Receita/KM e Lucro/KM: quanto você gera (receita e lucro) por quilômetro rodado no período."
+    )
 
     receita_total = service.metrics.receita_total(df_receitas_f)
     despesa_total = service.metrics.despesa_total(df_despesas_f)
