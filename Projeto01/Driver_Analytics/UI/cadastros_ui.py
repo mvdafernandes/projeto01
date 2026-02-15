@@ -77,6 +77,7 @@ def _set_receita_fields(row: pd.Series | None) -> None:
     st.session_state["cad_receita_km"] = float(row["km"]) if row is not None else 0.0
     st.session_state["cad_receita_tempo"] = _time_from_seconds(row["tempo trabalhado"] if row is not None else 0)
     st.session_state["cad_receita_obs"] = str(row.get("observacao", "")) if row is not None else ""
+    st.session_state["cad_receita_confirmar_exclusao"] = False
 
 
 def _set_despesa_fields(row: pd.Series | None) -> None:
@@ -87,6 +88,7 @@ def _set_despesa_fields(row: pd.Series | None) -> None:
     )
     st.session_state["cad_despesa_valor"] = float(row["valor"]) if row is not None else 0.0
     st.session_state["cad_despesa_obs"] = str(row.get("observacao", "")) if row is not None else ""
+    st.session_state["cad_despesa_confirmar_exclusao"] = False
 
 
 def _set_investimento_fields(row: pd.Series | None) -> None:
@@ -103,16 +105,30 @@ def _set_invest_aporte_fields(row: pd.Series | None) -> None:
     st.session_state["cad_inv_aporte_categoria"] = str(row.get("categoria", "Renda Fixa")) if row is not None else "Renda Fixa"
     st.session_state["cad_inv_aporte_valor"] = float(row.get("aporte", 0.0)) if row is not None else 0.0
     st.session_state["cad_inv_aporte_patrimonio"] = float(row.get("patrimonio total", 0.0)) if row is not None else 0.0
+    st.session_state["cad_inv_aporte_confirmar_exclusao"] = False
 
 
 def _set_invest_rendimento_fields(row: pd.Series | None) -> None:
     """Pre-fill rendimento form state from selected investment row."""
 
-    data_ref = _date_or_today(row["data"] if row is not None else None)
-    st.session_state["cad_inv_rend_data_inicio"] = data_ref
-    st.session_state["cad_inv_rend_data_fim"] = data_ref
+    data_inicio = _date_or_today((row.get("data_inicio") if row is not None else None) or (row["data"] if row is not None else None))
+    data_fim = _date_or_today((row.get("data_fim") if row is not None else None) or (row["data"] if row is not None else None))
+    st.session_state["cad_inv_rend_data_inicio"] = data_inicio
+    st.session_state["cad_inv_rend_data_fim"] = data_fim
+    st.session_state["cad_inv_rend_categoria"] = str(row.get("categoria", "Renda Fixa")) if row is not None else "Renda Fixa"
     st.session_state["cad_inv_rend_rendimento"] = float(row["rendimento"]) if row is not None else 0.0
     st.session_state["cad_inv_rend_patrimonio"] = float(row["patrimonio total"]) if row is not None else 0.0
+    st.session_state["cad_inv_rend_confirmar_exclusao"] = False
+
+
+def _set_invest_retirada_fields(row: pd.Series | None) -> None:
+    """Pre-fill retirada form state from selected investment row."""
+
+    st.session_state["cad_inv_ret_data"] = _date_or_today(row["data"] if row is not None else None)
+    st.session_state["cad_inv_ret_categoria"] = str(row.get("categoria", "Renda Fixa")) if row is not None else "Renda Fixa"
+    st.session_state["cad_inv_ret_valor"] = abs(float(row.get("aporte", 0.0))) if row is not None else 0.0
+    st.session_state["cad_inv_ret_patrimonio"] = float(row.get("patrimonio total", 0.0)) if row is not None else 0.0
+    st.session_state["cad_inv_ret_confirmar_exclusao"] = False
 
 
 def _sync_edit_state(df: pd.DataFrame, select_key: str, last_key: str, setter) -> int | None:
@@ -607,6 +623,12 @@ def pagina_cadastros() -> None:
                     format_func=lambda x: _investimento_retirada_label(df_retiradas, x),
                     key="cad_inv_ret_selected_id",
                 )
+                _sync_edit_state(
+                    df_retiradas,
+                    "cad_inv_ret_selected_id",
+                    "cad_inv_ret_last_selected_id",
+                    _set_invest_retirada_fields,
+                )
                 data_ret = st.date_input("Data da retirada", key="cad_inv_ret_data")
                 categoria_ret_sel = st.selectbox("Categoria", options=categorias_ret, key="cad_inv_ret_categoria")
                 retirada = st.number_input("Valor da retirada", min_value=0.0, key="cad_inv_ret_valor")
@@ -651,7 +673,8 @@ def pagina_cadastros() -> None:
                             )
                             st.success("Retirada salva com sucesso.")
                             _reset_fields([
-                                "cad_inv_ret_selected_id", "cad_inv_ret_data", "cad_inv_ret_valor",
+                                "cad_inv_ret_selected_id", "cad_inv_ret_last_selected_id",
+                                "cad_inv_ret_data", "cad_inv_ret_valor",
                                 "cad_inv_ret_confirmar_exclusao", "cad_inv_ret_rendimento_zero", "cad_inv_ret_patrimonio_preview",
                             ])
                             st.rerun()
@@ -687,7 +710,7 @@ def pagina_cadastros() -> None:
                         else:
                             service.deletar_investimento(int(selected_ret_id))
                             st.success("Registro de retirada excluído com sucesso.")
-                            _reset_fields(["cad_inv_ret_selected_id", "cad_inv_ret_confirmar_exclusao"])
+                            _reset_fields(["cad_inv_ret_selected_id", "cad_inv_ret_last_selected_id", "cad_inv_ret_confirmar_exclusao"])
                             st.rerun()
                 except ValueError as exc:
                     st.warning(str(exc))
