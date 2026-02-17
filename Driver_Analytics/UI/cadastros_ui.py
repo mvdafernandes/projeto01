@@ -296,10 +296,12 @@ def _patrimonio_atual(df: pd.DataFrame) -> float:
 
 
 def pagina_cadastros() -> None:
-    """Render central CRUD page for receitas, despesas and investimentos."""
+    """Render central CRUD page for receitas, despesas, investimentos e controle."""
 
     st.header("Cadastros")
-    tab_receitas, tab_despesas, tab_investimentos = st.tabs(["Receitas", "Despesas", "Investimentos"])
+    tab_receitas, tab_despesas, tab_investimentos, tab_controle = st.tabs(
+        ["Receitas", "Despesas", "Investimentos", "Controle"]
+    )
 
     with tab_receitas:
         titulo_secao("CRUD de Receitas")
@@ -874,3 +876,106 @@ def pagina_cadastros() -> None:
                     st.warning(str(exc))
                 except Exception as exc:
                     st.error(f"Erro ao processar retirada: {exc}")
+
+    with tab_controle:
+        titulo_secao("Controle de KM Total Rodado")
+        if not hasattr(service, "listar_controle_km"):
+            st.error("Versão do serviço sem suporte ao módulo Controle. Atualize os arquivos do projeto.")
+            return
+
+        df_ctrl = service.listar_controle_km()
+        if not df_ctrl.empty and "id" in df_ctrl.columns:
+            df_ctrl = df_ctrl.sort_values(by="id", ascending=False)
+
+        options_ctrl = [None] + (df_ctrl["id"].astype(int).tolist() if "id" in df_ctrl.columns else [])
+        st.selectbox("Registro", options=options_ctrl, key="cad_ctrl_selected_id")
+        selected_ctrl_id = st.session_state.get("cad_ctrl_selected_id")
+        row_ctrl = _get_row_by_id(df_ctrl, selected_ctrl_id)
+
+        today = pd.Timestamp.today().date()
+        data_inicio_default = today if row_ctrl is None else _date_or_today(row_ctrl.get("data_inicio"))
+        data_fim_default = today if row_ctrl is None else _date_or_today(row_ctrl.get("data_fim"))
+        km_default = 0.0 if row_ctrl is None else float(pd.to_numeric(row_ctrl.get("km_total_rodado", 0.0), errors="coerce"))
+
+        with st.form("cad_controle_form"):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                data_inicio = st.date_input("Data inicial", value=data_inicio_default, key="cad_ctrl_data_inicio")
+            with col_b:
+                data_fim = st.date_input("Data final/atualização", value=data_fim_default, key="cad_ctrl_data_fim")
+            km_total_rodado = st.number_input("KM total rodado", min_value=0.0, value=float(km_default), key="cad_ctrl_km_total")
+            confirmar_exclusao = st.checkbox("Confirmo a exclusão deste registro", key="cad_ctrl_confirmar_exclusao")
+
+            col1, col2, col3 = st.columns(3)
+            salvar = col1.form_submit_button("Salvar (novo)")
+            atualizar = col2.form_submit_button("Atualizar")
+            excluir = col3.form_submit_button("Excluir")
+
+            data_inicio_valida = _safe_date_or_none(data_inicio)
+            data_fim_valida = _safe_date_or_none(data_fim)
+            try:
+                if salvar:
+                    if data_inicio_valida is None or data_fim_valida is None:
+                        st.warning("Selecione datas válidas.")
+                    elif data_fim_valida < data_inicio_valida:
+                        st.warning("A data final deve ser maior ou igual à data inicial.")
+                    else:
+                        service.criar_controle_km(
+                            data_inicio_valida.isoformat(),
+                            data_fim_valida.isoformat(),
+                            float(km_total_rodado),
+                        )
+                        st.success("Controle salvo com sucesso.")
+                        _reset_fields(
+                            [
+                                "cad_ctrl_selected_id",
+                                "cad_ctrl_data_inicio",
+                                "cad_ctrl_data_fim",
+                                "cad_ctrl_km_total",
+                                "cad_ctrl_confirmar_exclusao",
+                            ]
+                        )
+                        st.rerun()
+
+                if atualizar:
+                    if selected_ctrl_id is None:
+                        st.warning("Selecione um registro para atualizar.")
+                    elif data_inicio_valida is None or data_fim_valida is None:
+                        st.warning("Selecione datas válidas.")
+                    elif data_fim_valida < data_inicio_valida:
+                        st.warning("A data final deve ser maior ou igual à data inicial.")
+                    else:
+                        service.atualizar_controle_km(
+                            int(selected_ctrl_id),
+                            data_inicio_valida.isoformat(),
+                            data_fim_valida.isoformat(),
+                            float(km_total_rodado),
+                        )
+                        st.success("Controle atualizado com sucesso.")
+                        st.rerun()
+
+                if excluir:
+                    if selected_ctrl_id is None:
+                        st.warning("Selecione um registro para excluir.")
+                    elif not confirmar_exclusao:
+                        st.warning("Confirme a exclusão para continuar.")
+                    else:
+                        service.deletar_controle_km(int(selected_ctrl_id))
+                        st.success("Registro de controle excluído com sucesso.")
+                        _reset_fields(["cad_ctrl_selected_id", "cad_ctrl_confirmar_exclusao"])
+                        st.rerun()
+            except Exception as exc:
+                st.error(f"Erro ao processar controle: {exc}")
+
+        if df_ctrl.empty:
+            st.caption("Sem registros de controle.")
+        else:
+            tabela_ctrl = df_ctrl.copy()
+            if "data_inicio" in tabela_ctrl.columns:
+                tabela_ctrl["data_inicio"] = pd.to_datetime(tabela_ctrl["data_inicio"], errors="coerce").dt.date
+            if "data_fim" in tabela_ctrl.columns:
+                tabela_ctrl["data_fim"] = pd.to_datetime(tabela_ctrl["data_fim"], errors="coerce").dt.date
+            tabela_ctrl["km_total_rodado"] = pd.to_numeric(
+                tabela_ctrl["km_total_rodado"], errors="coerce"
+            ).fillna(0.0).map(lambda x: f"{x:.2f}")
+            st.dataframe(tabela_ctrl, width="stretch")
