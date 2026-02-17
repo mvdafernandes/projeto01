@@ -22,7 +22,7 @@ class ControleKMRepository(BaseRepository):
                 data = client.table(self.table_name).select("*").execute().data
                 return self._normalize(pd.DataFrame(data))
             except Exception:
-                return self._normalize(pd.DataFrame())
+                pass
 
         conn = self._sqlite()
         df = pd.read_sql(f"SELECT * FROM {self.table_name}", conn)
@@ -35,8 +35,11 @@ class ControleKMRepository(BaseRepository):
 
         client = self._supabase()
         if client:
-            client.table(self.table_name).insert(payload).execute()
-            return
+            try:
+                client.table(self.table_name).insert(payload).execute()
+                return
+            except Exception:
+                pass
 
         conn = self._sqlite()
         cursor = conn.cursor()
@@ -56,8 +59,11 @@ class ControleKMRepository(BaseRepository):
 
         client = self._supabase()
         if client:
-            client.table(self.table_name).update(payload).eq("id", int(item_id)).execute()
-            return
+            try:
+                client.table(self.table_name).update(payload).eq("id", int(item_id)).execute()
+                return
+            except Exception:
+                pass
 
         conn = self._sqlite()
         cursor = conn.cursor()
@@ -75,8 +81,11 @@ class ControleKMRepository(BaseRepository):
     def deletar(self, item_id: int) -> None:
         client = self._supabase()
         if client:
-            client.table(self.table_name).delete().eq("id", int(item_id)).execute()
-            return
+            try:
+                client.table(self.table_name).delete().eq("id", int(item_id)).execute()
+                return
+            except Exception:
+                pass
 
         conn = self._sqlite()
         cursor = conn.cursor()
