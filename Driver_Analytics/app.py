@@ -8,7 +8,6 @@ from core.auth import get_logged_username, login_required, render_logout_button
 from core.database import init_sqlite_schema
 from UI.cadastros_ui import pagina_cadastros
 from UI.components import aplicar_estilo_global, render_hero_banner
-from UI.controle_ui import pagina_controle
 from UI.dashboard_ui import pagina_dashboard
 from UI.despesas_ui import pagina_despesas
 from UI.investimentos_ui import pagina_investimentos
@@ -27,7 +26,7 @@ if username:
 
 render_logout_button()
 
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastros", "Controle", "Receitas", "Despesas", "Investimentos"])
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastros", "Receitas", "Despesas", "Investimentos"])
 render_hero_banner(username, menu)
 
 if menu == "Cadastros":
@@ -37,8 +36,6 @@ if menu == "Dashboard":
     pagina_dashboard()
 elif menu == "Cadastros":
     pagina_cadastros()
-elif menu == "Controle":
-    pagina_controle()
 elif menu == "Receitas":
     pagina_receitas()
 elif menu == "Despesas":
