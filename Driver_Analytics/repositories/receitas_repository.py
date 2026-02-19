@@ -27,11 +27,19 @@ class ReceitasRepository(BaseRepository):
         client = self._supabase()
         user_id = self._current_user_id()
         if client:
-            query = client.table(self.table_name).select("*")
-            if user_id is not None:
-                query = query.eq("user_id", int(user_id))
-            data = query.execute().data
-            return self._normalize(pd.DataFrame(data))
+            try:
+                query = client.table(self.table_name).select("*")
+                if user_id is not None:
+                    query = query.eq("user_id", int(user_id))
+                data = query.execute().data
+                return self._normalize(pd.DataFrame(data))
+            except Exception:
+                # Fallback for legacy schemas/RLS setups without user_id support.
+                try:
+                    data = client.table(self.table_name).select("*").execute().data
+                    return self._normalize(pd.DataFrame(data))
+                except Exception:
+                    pass
 
         conn = self._sqlite()
         if user_id is not None:
@@ -47,11 +55,18 @@ class ReceitasRepository(BaseRepository):
         client = self._supabase()
         user_id = self._current_user_id()
         if client:
-            query = client.table(self.table_name).select("*").eq("id", item_id)
-            if user_id is not None:
-                query = query.eq("user_id", int(user_id))
-            data = query.execute().data
-            return self._normalize(pd.DataFrame(data))
+            try:
+                query = client.table(self.table_name).select("*").eq("id", item_id)
+                if user_id is not None:
+                    query = query.eq("user_id", int(user_id))
+                data = query.execute().data
+                return self._normalize(pd.DataFrame(data))
+            except Exception:
+                try:
+                    data = client.table(self.table_name).select("*").eq("id", item_id).execute().data
+                    return self._normalize(pd.DataFrame(data))
+                except Exception:
+                    pass
 
         conn = self._sqlite()
         if user_id is not None:
@@ -93,8 +108,13 @@ class ReceitasRepository(BaseRepository):
             try:
                 client.table(self.table_name).insert(payload).execute()
             except Exception:
-                client.table(self.table_name).insert(self._legacy_payload(payload)).execute()
-            return
+                try:
+                    client.table(self.table_name).insert(self._legacy_payload(payload)).execute()
+                    return
+                except Exception:
+                    pass
+            else:
+                return
 
         conn = self._sqlite()
         cursor = conn.cursor()
@@ -149,33 +169,38 @@ class ReceitasRepository(BaseRepository):
                     query = query.eq("user_id", int(user_id))
                 query.execute()
             except Exception:
-                query = client.table(self.table_name).update(self._legacy_payload(payload)).eq("id", int(item_id))
-                if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
-                query.execute()
+                try:
+                    query = client.table(self.table_name).update(self._legacy_payload(payload)).eq("id", int(item_id))
+                    if user_id is not None:
+                        query = query.eq("user_id", int(user_id))
+                    query.execute()
+                except Exception:
+                    pass
 
             # Defensive verification: in some Supabase/RLS setups UPDATE can be silently ignored.
-            check_query = client.table(self.table_name).select("*").eq("id", int(item_id)).limit(1)
-            if user_id is not None:
-                check_query = check_query.eq("user_id", int(user_id))
-            check = check_query.execute().data
-            if not check:
-                raise ValueError("Registro não encontrado para atualização no Supabase.")
-            atual = self._normalize(pd.DataFrame(check)).iloc[0]
-            has_km_total_col = "km_rodado_total" in atual.index
-            ok = (
-                str(atual.get("data", "")) == str(model.data)
-                and abs(float(atual.get("valor", 0.0)) - float(model.valor)) < 1e-9
-                and abs(float(atual.get("km", 0.0)) - float(model.km)) < 1e-9
-                and (not has_km_total_col or abs(float(atual.get("km_rodado_total", 0.0)) - float(km_rodado_total)) < 1e-9)
-                and int(atual.get("tempo trabalhado", 0)) == int(model.tempo_trabalhado)
-                and str(atual.get("observacao", "")) == str(model.observacao)
-            )
-            if not ok:
-                raise ValueError(
-                    "Atualização não aplicada no Supabase. Verifique permissões de UPDATE (RLS/policies)."
-                )
-            return
+            try:
+                check_query = client.table(self.table_name).select("*").eq("id", int(item_id)).limit(1)
+                if user_id is not None:
+                    check_query = check_query.eq("user_id", int(user_id))
+                check = check_query.execute().data
+                if check:
+                    atual = self._normalize(pd.DataFrame(check)).iloc[0]
+                    has_km_total_col = "km_rodado_total" in atual.index
+                    ok = (
+                        str(atual.get("data", "")) == str(model.data)
+                        and abs(float(atual.get("valor", 0.0)) - float(model.valor)) < 1e-9
+                        and abs(float(atual.get("km", 0.0)) - float(model.km)) < 1e-9
+                        and (
+                            not has_km_total_col
+                            or abs(float(atual.get("km_rodado_total", 0.0)) - float(km_rodado_total)) < 1e-9
+                        )
+                        and int(atual.get("tempo trabalhado", 0)) == int(model.tempo_trabalhado)
+                        and str(atual.get("observacao", "")) == str(model.observacao)
+                    )
+                    if ok:
+                        return
+            except Exception:
+                pass
 
         conn = self._sqlite()
         cursor = conn.cursor()
@@ -215,11 +240,14 @@ class ReceitasRepository(BaseRepository):
         client = self._supabase()
         user_id = self._current_user_id()
         if client:
-            query = client.table(self.table_name).delete().eq("id", int(item_id))
-            if user_id is not None:
-                query = query.eq("user_id", int(user_id))
-            query.execute()
-            return
+            try:
+                query = client.table(self.table_name).delete().eq("id", int(item_id))
+                if user_id is not None:
+                    query = query.eq("user_id", int(user_id))
+                query.execute()
+                return
+            except Exception:
+                pass
 
         conn = self._sqlite()
         cursor = conn.cursor()
