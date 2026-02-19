@@ -1,67 +1,45 @@
-"""Despesas UI page."""
+"""Receitas UI page."""
 
 from __future__ import annotations
 
 import pandas as pd
-import plotly.express as px
 import streamlit as st
 
 from services.dashboard_service import DashboardService
-from UI.components import format_currency, formatar_moeda, render_kpi, show_empty_data, titulo_secao
+from UI.components import format_currency, format_percent, formatar_moeda, render_kpi, show_empty_data, titulo_secao
 
 
 service = DashboardService()
-ESFERA_LABEL_MAP = {"NEGOCIO": "Negócio", "PESSOAL": "Pessoal"}
-ESFERA_COLOR_MAP = {"Negócio": "#1f77b4", "Pessoal": "#ff7f0e"}
 
 
-def _normalizar_tipo_despesa(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    if "tipo_despesa" not in out.columns:
-        out["tipo_despesa"] = "VARIAVEL"
-    out["tipo_despesa"] = out["tipo_despesa"].fillna("VARIAVEL").astype(str).str.upper().str.strip()
-    out.loc[~out["tipo_despesa"].isin(["VARIAVEL", "RECORRENTE", "FIXA"]), "tipo_despesa"] = "VARIAVEL"
-    if "subcategoria_fixa" not in out.columns:
-        out["subcategoria_fixa"] = ""
-    out["subcategoria_fixa"] = out["subcategoria_fixa"].fillna("").astype(str).str.strip()
-    if "esfera_despesa" not in out.columns:
-        out["esfera_despesa"] = "NEGOCIO"
-    out["esfera_despesa"] = out["esfera_despesa"].fillna("NEGOCIO").astype(str).str.upper().str.strip()
-    out.loc[~out["esfera_despesa"].isin(["NEGOCIO", "PESSOAL"]), "esfera_despesa"] = "NEGOCIO"
-    return out
+def _format_hms(total_seconds: float) -> str:
+    seconds = int(total_seconds)
+    horas = seconds // 3600
+    minutos = (seconds % 3600) // 60
+    segundos = seconds % 60
+    return f"{horas:02d}:{minutos:02d}:{segundos:02d}"
 
 
-def _intervalo_referencia(modo_periodo: str, ano: int | None, mes: int | None, data_inicial, data_final):
-    if modo_periodo == "Mensal" and ano is not None and mes is not None:
-        inicio = pd.Timestamp(year=int(ano), month=int(mes), day=1)
-        fim = (inicio + pd.offsets.MonthEnd(1)).normalize()
-        return inicio, fim
-    return pd.to_datetime(data_inicial), pd.to_datetime(data_final)
-
-
-def pagina_despesas() -> None:
-    st.header("Despesas")
+def pagina_receitas() -> None:
+    st.header("Receitas")
     st.info("Cadastros e edições agora ficam na página Cadastros.")
 
-    df = service.listar_despesas()
+    df = service.listar_receitas()
     if "data" in df.columns:
         df["data"] = pd.to_datetime(df["data"], errors="coerce")
-    df = _normalizar_tipo_despesa(df)
+    if "tempo trabalhado" in df.columns:
+        df["tempo trabalhado"] = pd.to_numeric(df["tempo trabalhado"], errors="coerce").fillna(0).astype(int)
 
-    modo_periodo = st.radio("Visualização", ["Mensal", "Personalizado"], horizontal=True, key="desp_modo_periodo")
+    modo_periodo = st.radio("Visualização", ["Mensal", "Personalizado"], horizontal=True, key="rec_modo_periodo")
 
     df_filtrado = df.copy()
     titulo_resumo = "Resumo do Mês"
-    ano = None
-    mes = None
-    data_inicial = None
-    data_final = None
     if modo_periodo == "Mensal":
         col1, col2 = st.columns(2)
         with col1:
-            ano = st.number_input("Ano", value=pd.Timestamp.today().year, key="desp_ano")
+            ano = st.number_input("Ano", min_value=2020, max_value=2100, value=pd.Timestamp.today().year, key="rec_ano")
         with col2:
-            mes = st.number_input("Mês", min_value=1, max_value=12, value=pd.Timestamp.today().month, key="desp_mes")
+            mes = st.number_input("Mês", min_value=1, max_value=12, value=pd.Timestamp.today().month, key="rec_mes")
         if not df_filtrado.empty and "data" in df_filtrado.columns:
             df_filtrado = df_filtrado[(df_filtrado["data"].dt.year == int(ano)) & (df_filtrado["data"].dt.month == int(mes))]
     else:
@@ -78,7 +56,7 @@ def pagina_despesas() -> None:
                 value=min_data,
                 min_value=min_data,
                 max_value=max_data,
-                key="desp_data_inicio",
+                key="rec_data_inicio",
             )
         with col2:
             data_final = st.date_input(
@@ -86,7 +64,7 @@ def pagina_despesas() -> None:
                 value=max_data,
                 min_value=min_data,
                 max_value=max_data,
-                key="desp_data_fim",
+                key="rec_data_fim",
             )
         if pd.to_datetime(data_inicial) > pd.to_datetime(data_final):
             st.warning("A data inicial não pode ser maior que a data final.")
@@ -97,145 +75,141 @@ def pagina_despesas() -> None:
         titulo_resumo = "Resumo do Período"
 
     titulo_secao(titulo_resumo)
-    total = service.metrics.despesa_total(df_filtrado)
-    media = service.metrics.despesa_media(df_filtrado)
-    despesas_negocio = df_filtrado[df_filtrado["esfera_despesa"] == "NEGOCIO"].copy()
-    despesas_pessoal = df_filtrado[df_filtrado["esfera_despesa"] == "PESSOAL"].copy()
-    total_negocio = service.metrics.despesa_total(despesas_negocio)
-    total_pessoal = service.metrics.despesa_total(despesas_pessoal)
+    total = service.metrics.receita_total(df_filtrado)
+    media = service.metrics.receita_media_diaria(df_filtrado)
+    dias = service.metrics.dias_trabalhados(df_filtrado)
+    meta_pct = service.metrics.percentual_meta_batida(df_filtrado)
 
-    kpis = st.columns(4)
-    with kpis[0]:
-        render_kpi("Despesa total", format_currency(total))
-    with kpis[1]:
-        render_kpi("Despesa média", format_currency(media))
-    with kpis[2]:
-        render_kpi("Despesa negócio", format_currency(total_negocio))
-    with kpis[3]:
-        render_kpi("Despesa pessoal", format_currency(total_pessoal))
-    st.caption("Despesa média = valor médio por lançamento registrado no período selecionado.")
-    st.caption("Visão micro do negócio: foque em 'Despesa negócio'. Visão macro de gestão: use 'Despesa total' (negócio + pessoal).")
+    row1 = st.columns(2)
+    with row1[0]:
+        render_kpi("Total", format_currency(total))
+    with row1[1]:
+        render_kpi("Média diária", format_currency(media))
 
-    inicio_ref, fim_ref = _intervalo_referencia(modo_periodo, ano, mes, data_inicial, data_final)
-    dias_ref = max(1, int((pd.to_datetime(fim_ref) - pd.to_datetime(inicio_ref)).days + 1))
+    row2 = st.columns(2)
+    with row2[0]:
+        render_kpi("Dias trabalhados", dias)
+    with row2[1]:
+        render_kpi("% Meta 300", format_percent(meta_pct))
 
-    titulo_secao("Projeções e Recorrência")
-    recorrentes = df_filtrado[df_filtrado["tipo_despesa"] == "RECORRENTE"].copy()
-    total_recorrente = float(pd.to_numeric(recorrentes.get("valor"), errors="coerce").fillna(0.0).sum()) if not recorrentes.empty else 0.0
-    proj_semana = float(total_recorrente / dias_ref * 7.0)
-    proj_mes = float(total_recorrente / dias_ref * 30.0)
-    rec_negocio = recorrentes[recorrentes["esfera_despesa"] == "NEGOCIO"].copy()
-    rec_pessoal = recorrentes[recorrentes["esfera_despesa"] == "PESSOAL"].copy()
-    total_rec_negocio = float(pd.to_numeric(rec_negocio.get("valor"), errors="coerce").fillna(0.0).sum()) if not rec_negocio.empty else 0.0
-    total_rec_pessoal = float(pd.to_numeric(rec_pessoal.get("valor"), errors="coerce").fillna(0.0).sum()) if not rec_pessoal.empty else 0.0
-
-    cols_rec = st.columns(3)
-    with cols_rec[0]:
-        render_kpi("Recorrentes no período", format_currency(total_recorrente))
-    with cols_rec[1]:
-        render_kpi("Projeção semanal", format_currency(proj_semana))
-    with cols_rec[2]:
-        render_kpi("Projeção mensal", format_currency(proj_mes))
-
-    st.caption("Despesas marcadas como recorrentes são projetadas por média diária para semana (7 dias) e mês (30 dias).")
-    cols_rec_split = st.columns(2)
-    with cols_rec_split[0]:
-        render_kpi("Recorrentes negócio", format_currency(total_rec_negocio))
-    with cols_rec_split[1]:
-        render_kpi("Recorrentes pessoais", format_currency(total_rec_pessoal))
-
-    titulo_secao("Distribuição Negócio x Pessoal")
-    esfera = (
-        df_filtrado.groupby("esfera_despesa", as_index=False)["valor"].sum()
-        if not df_filtrado.empty
-        else pd.DataFrame(columns=["esfera_despesa", "valor"])
-    )
-    if esfera.empty:
-        show_empty_data("Sem despesas no período selecionado.")
+    titulo_secao("Evolução Diária")
+    if not df_filtrado.empty and {"data", "valor"}.issubset(df_filtrado.columns):
+        resumo = df_filtrado.groupby("data")["valor"].sum()
+        st.line_chart(resumo)
     else:
-        esfera["esfera"] = esfera["esfera_despesa"].map(ESFERA_LABEL_MAP).fillna("Negócio")
-        fig_esfera = px.bar(
-            esfera,
-            x="esfera",
-            y="valor",
-            color="esfera",
-            color_discrete_map=ESFERA_COLOR_MAP,
-            labels={"esfera": "Escopo", "valor": "Valor"},
-        )
-        st.plotly_chart(fig_esfera, use_container_width=True)
+        show_empty_data()
 
-    tab_negocio, tab_pessoal = st.tabs(["Despesas de Negócio", "Despesas Pessoais"])
+    titulo_secao("Evolução Semanal, Mensal e Anual")
+    if not df_filtrado.empty and {"data", "valor"}.issubset(df_filtrado.columns):
+        base = df_filtrado.copy()
+        base["valor"] = pd.to_numeric(base["valor"], errors="coerce").fillna(0.0)
+        base["data"] = pd.to_datetime(base["data"], errors="coerce")
+        base = base.dropna(subset=["data"])
 
-    def _render_aba_escopo(df_scope: pd.DataFrame, esfera_label: str, key_prefix: str) -> None:
-        titulo_secao(f"Por categoria ({esfera_label})")
-        if df_scope.empty:
-            show_empty_data("Sem dados neste escopo para o período.")
+        if base.empty:
+            show_empty_data("Sem dados suficientes para evolução por período.")
         else:
-            categoria_plot = (
-                df_scope.groupby("categoria", as_index=False)["valor"]
+            semanal = (
+                base.set_index("data")["valor"]
+                .resample("W-SUN")
                 .sum()
-                .sort_values(by="valor", ascending=False)
+                .rename_axis("periodo")
             )
-            fig_categoria = px.bar(
-                categoria_plot,
-                x="categoria",
-                y="valor",
-                color_discrete_sequence=[ESFERA_COLOR_MAP.get(esfera_label, "#1f77b4")],
-                labels={"categoria": "Categoria", "valor": "Valor"},
+            mensal = (
+                base.set_index("data")["valor"]
+                .resample("M")
+                .sum()
+                .rename_axis("periodo")
             )
-            st.plotly_chart(fig_categoria, use_container_width=True)
+            anual = (
+                base.set_index("data")["valor"]
+                .resample("Y")
+                .sum()
+                .rename_axis("periodo")
+            )
 
-        titulo_secao(f"Contas Fixas por Subcategoria ({esfera_label})")
-        fixas = df_scope[df_scope["tipo_despesa"] == "FIXA"].copy()
-        if fixas.empty:
-            show_empty_data("Sem despesas fixas no período selecionado.")
+            col_sem, col_men, col_anu = st.columns(3)
+            with col_sem:
+                st.markdown("**Semanal**")
+                st.line_chart(semanal)
+            with col_men:
+                st.markdown("**Mensal**")
+                st.line_chart(mensal)
+            with col_anu:
+                st.markdown("**Anual**")
+                st.line_chart(anual)
+    else:
+        show_empty_data("Sem dados para evolução semanal, mensal e anual.")
+
+    titulo_secao("Registros")
+    df_tabela = df_filtrado.copy()
+    if "data" in df_tabela.columns:
+        df_tabela["data"] = pd.to_datetime(df_tabela["data"], errors="coerce").dt.date
+    if "valor" in df_tabela.columns:
+        df_tabela["valor"] = pd.to_numeric(df_tabela["valor"], errors="coerce").fillna(0.0).apply(formatar_moeda)
+    if "km" in df_tabela.columns:
+        df_tabela["km"] = pd.to_numeric(df_tabela["km"], errors="coerce").fillna(0.0).map(lambda v: f"{float(v):.2f}")
+    if "tempo trabalhado" in df_tabela.columns:
+        df_tabela["tempo trabalhado"] = df_tabela["tempo trabalhado"].apply(_format_hms)
+    st.dataframe(df_tabela, width="stretch")
+
+    titulo_secao("Remuneração (CPF)")
+    st.caption(
+        "Remuneração bruta = lucro do negócio no período (receitas - despesas de negócio). "
+        "Remuneração disponível considera aportes e retiradas de investimentos."
+    )
+    df_despesas = service.listar_despesas()
+    if "data" in df_despesas.columns:
+        df_despesas["data"] = pd.to_datetime(df_despesas["data"], errors="coerce")
+    if "esfera_despesa" not in df_despesas.columns:
+        df_despesas["esfera_despesa"] = "NEGOCIO"
+    df_despesas["esfera_despesa"] = df_despesas["esfera_despesa"].fillna("NEGOCIO").astype(str).str.upper().str.strip()
+
+    if modo_periodo == "Mensal":
+        despesas_filtradas = df_despesas[
+            (df_despesas["data"].dt.year == int(ano)) & (df_despesas["data"].dt.month == int(mes))
+        ].copy() if not df_despesas.empty else pd.DataFrame()
+    else:
+        despesas_filtradas = df_despesas[
+            (df_despesas["data"] >= inicio) & (df_despesas["data"] <= fim)
+        ].copy() if not df_despesas.empty else pd.DataFrame()
+
+    if "esfera_despesa" not in despesas_filtradas.columns:
+        despesas_filtradas["esfera_despesa"] = "NEGOCIO"
+
+    despesas_negocio = despesas_filtradas[despesas_filtradas["esfera_despesa"] == "NEGOCIO"].copy()
+    despesas_pessoais = despesas_filtradas[despesas_filtradas["esfera_despesa"] == "PESSOAL"].copy()
+
+    df_inv = service.listar_investimentos()
+    if not df_inv.empty:
+        data_inv_col = "data_fim" if "data_fim" in df_inv.columns else "data"
+        df_inv[data_inv_col] = pd.to_datetime(df_inv[data_inv_col], errors="coerce")
+        if modo_periodo == "Mensal":
+            df_inv = df_inv[(df_inv[data_inv_col].dt.year == int(ano)) & (df_inv[data_inv_col].dt.month == int(mes))]
         else:
-            fixas["subcat"] = fixas["subcategoria_fixa"].where(fixas["subcategoria_fixa"].str.strip() != "", fixas["observacao"])
-            fixas["subcat"] = fixas["subcat"].fillna("").astype(str).str.strip()
-            fixas.loc[fixas["subcat"] == "", "subcat"] = "Sem subcategoria"
-            fixas["valor"] = pd.to_numeric(fixas["valor"], errors="coerce").fillna(0.0)
+            df_inv = df_inv[(df_inv[data_inv_col] >= inicio) & (df_inv[data_inv_col] <= fim)]
+        df_inv["aporte"] = pd.to_numeric(df_inv.get("aporte"), errors="coerce").fillna(0.0)
 
-            grupo = fixas.groupby("subcat", as_index=False)["valor"].sum().sort_values(by="valor", ascending=False)
-            total_fixas = float(grupo["valor"].sum())
-            grupo["percentual"] = grupo["valor"].apply(lambda v: 0.0 if total_fixas == 0 else float(v) / total_fixas * 100.0)
+    despesa_negocio_total = service.metrics.despesa_total(despesas_negocio)
+    despesa_pessoal_total = service.metrics.despesa_total(despesas_pessoais)
+    lucro_negocio = float(total - despesa_negocio_total)
+    aportes = float(df_inv[df_inv["aporte"] > 0]["aporte"].sum()) if not df_inv.empty else 0.0
+    retiradas = float(abs(df_inv[df_inv["aporte"] < 0]["aporte"].sum())) if not df_inv.empty else 0.0
+    remuneracao_disponivel = float(lucro_negocio - aportes + retiradas)
+    saldo_cpf = float(remuneracao_disponivel - despesa_pessoal_total)
 
-            cols_fixas = st.columns(2)
-            with cols_fixas[0]:
-                render_kpi("Total de fixas", format_currency(total_fixas))
-            with cols_fixas[1]:
-                render_kpi("Subcategorias fixas", int(grupo.shape[0]))
+    col_r1, col_r2, col_r3 = st.columns(3)
+    with col_r1:
+        render_kpi("Remuneração bruta", format_currency(lucro_negocio))
+    with col_r2:
+        render_kpi("Remuneração disponível", format_currency(remuneracao_disponivel))
+    with col_r3:
+        render_kpi("Saldo CPF", format_currency(saldo_cpf))
 
-            fig_fixas = px.bar(
-                grupo,
-                x="subcat",
-                y="valor",
-                color_discrete_sequence=[ESFERA_COLOR_MAP.get(esfera_label, "#1f77b4")],
-                labels={"subcat": "Subcategoria", "valor": "Valor"},
-            )
-            st.plotly_chart(fig_fixas, use_container_width=True)
-            tabela_fixas = grupo.copy()
-            tabela_fixas["valor"] = tabela_fixas["valor"].apply(formatar_moeda)
-            tabela_fixas["percentual"] = tabela_fixas["percentual"].map(lambda x: f"{x:.1f}%")
-            st.dataframe(tabela_fixas.rename(columns={"subcat": "subcategoria"}), width="stretch", hide_index=True)
-
-        titulo_secao(f"Registros ({esfera_label})")
-        df_tabela = df_scope.copy()
-        if "data" in df_tabela.columns:
-            df_tabela["data"] = pd.to_datetime(df_tabela["data"], errors="coerce").dt.date
-        if "valor" in df_tabela.columns:
-            df_tabela["valor"] = pd.to_numeric(df_tabela["valor"], errors="coerce").fillna(0.0).apply(formatar_moeda)
-        if "litros" in df_tabela.columns:
-            df_tabela["litros"] = pd.to_numeric(df_tabela["litros"], errors="coerce").fillna(0.0).map(lambda x: f"{x:.2f}")
-        if "tipo_despesa" in df_tabela.columns:
-            mapa_tipo = {"VARIAVEL": "Variável", "RECORRENTE": "Recorrente", "FIXA": "Fixa"}
-            df_tabela["tipo_despesa"] = df_tabela["tipo_despesa"].map(lambda x: mapa_tipo.get(str(x).upper(), "Variável"))
-        if "esfera_despesa" in df_tabela.columns:
-            mapa_esfera = {"NEGOCIO": "Negócio", "PESSOAL": "Pessoal"}
-            df_tabela["esfera_despesa"] = df_tabela["esfera_despesa"].map(lambda x: mapa_esfera.get(str(x).upper(), "Negócio"))
-        st.dataframe(df_tabela, width="stretch")
-
-    with tab_negocio:
-        _render_aba_escopo(df_filtrado[df_filtrado["esfera_despesa"] == "NEGOCIO"].copy(), "Negócio", "negocio")
-
-    with tab_pessoal:
-        _render_aba_escopo(df_filtrado[df_filtrado["esfera_despesa"] == "PESSOAL"].copy(), "Pessoal", "pessoal")
+    col_r4, col_r5, col_r6 = st.columns(3)
+    with col_r4:
+        render_kpi("Despesa pessoal", format_currency(despesa_pessoal_total))
+    with col_r5:
+        render_kpi("Aportes", format_currency(aportes))
+    with col_r6:
+        render_kpi("Retiradas", format_currency(retiradas))
