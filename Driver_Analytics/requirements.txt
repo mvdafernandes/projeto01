@@ -4,3 +4,8 @@ plotly
 seaborn
 supabase
 bcrypt
+argon2-cffi
+pytest
+ruff
+mypy
+pre-commit

@@ -28,12 +28,19 @@ class DespesasRepository(BaseRepository):
         """List despesas as standardized dataframe."""
 
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
-            data = client.table(self.table_name).select("*").execute().data
+            query = client.table(self.table_name).select("*")
+            if user_id is not None:
+                query = query.eq("user_id", int(user_id))
+            data = query.execute().data
             return self._normalize(pd.DataFrame(data))
 
         conn = self._sqlite()
-        df = pd.read_sql(f"SELECT * FROM {self.table_name}", conn)
+        if user_id is not None:
+            df = pd.read_sql(f"SELECT * FROM {self.table_name} WHERE user_id = ?", conn, params=(int(user_id),))
+        else:
+            df = pd.read_sql(f"SELECT * FROM {self.table_name}", conn)
         conn.close()
         return self._normalize(df)
 
@@ -41,12 +48,23 @@ class DespesasRepository(BaseRepository):
         """Get despesa by id as standardized dataframe."""
 
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
-            data = client.table(self.table_name).select("*").eq("id", item_id).execute().data
+            query = client.table(self.table_name).select("*").eq("id", item_id)
+            if user_id is not None:
+                query = query.eq("user_id", int(user_id))
+            data = query.execute().data
             return self._normalize(pd.DataFrame(data))
 
         conn = self._sqlite()
-        df = pd.read_sql(f"SELECT * FROM {self.table_name} WHERE id = ?", conn, params=(item_id,))
+        if user_id is not None:
+            df = pd.read_sql(
+                f"SELECT * FROM {self.table_name} WHERE id = ? AND user_id = ?",
+                conn,
+                params=(item_id, int(user_id)),
+            )
+        else:
+            df = pd.read_sql(f"SELECT * FROM {self.table_name} WHERE id = ?", conn, params=(item_id,))
         conn.close()
         return self._normalize(df)
 
@@ -75,7 +93,7 @@ class DespesasRepository(BaseRepository):
                 "litros": litros,
             }
         )
-        payload = model.to_record()
+        payload = self._with_user_id(model.to_record())
 
         client = self._supabase()
         if client:
@@ -89,10 +107,11 @@ class DespesasRepository(BaseRepository):
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO despesas (data, categoria, valor, observacao, tipo_despesa, subcategoria_fixa, esfera_despesa, litros)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO despesas (user_id, data, categoria, valor, observacao, tipo_despesa, subcategoria_fixa, esfera_despesa, litros)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                self._current_user_id(),
                 model.data,
                 model.categoria,
                 model.valor,
@@ -132,36 +151,64 @@ class DespesasRepository(BaseRepository):
                 "litros": litros,
             }
         )
-        payload = model.to_record()
+        payload = self._with_user_id(model.to_record())
 
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
             try:
-                client.table(self.table_name).update(payload).eq("id", int(item_id)).execute()
+                query = client.table(self.table_name).update(payload).eq("id", int(item_id))
+                if user_id is not None:
+                    query = query.eq("user_id", int(user_id))
+                query.execute()
             except Exception:
-                client.table(self.table_name).update(self._legacy_payload(payload)).eq("id", int(item_id)).execute()
+                query = client.table(self.table_name).update(self._legacy_payload(payload)).eq("id", int(item_id))
+                if user_id is not None:
+                    query = query.eq("user_id", int(user_id))
+                query.execute()
             return
 
         conn = self._sqlite()
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            UPDATE despesas
-            SET data = ?, categoria = ?, valor = ?, observacao = ?, tipo_despesa = ?, subcategoria_fixa = ?, esfera_despesa = ?, litros = ?
-            WHERE id = ?
-            """,
-            (
-                model.data,
-                model.categoria,
-                model.valor,
-                model.observacao,
-                model.tipo_despesa,
-                model.subcategoria_fixa,
-                model.esfera_despesa,
-                model.litros,
-                int(item_id),
-            ),
-        )
+        if user_id is not None:
+            cursor.execute(
+                """
+                UPDATE despesas
+                SET data = ?, categoria = ?, valor = ?, observacao = ?, tipo_despesa = ?, subcategoria_fixa = ?, esfera_despesa = ?, litros = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (
+                    model.data,
+                    model.categoria,
+                    model.valor,
+                    model.observacao,
+                    model.tipo_despesa,
+                    model.subcategoria_fixa,
+                    model.esfera_despesa,
+                    model.litros,
+                    int(item_id),
+                    int(user_id),
+                ),
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE despesas
+                SET data = ?, categoria = ?, valor = ?, observacao = ?, tipo_despesa = ?, subcategoria_fixa = ?, esfera_despesa = ?, litros = ?
+                WHERE id = ?
+                """,
+                (
+                    model.data,
+                    model.categoria,
+                    model.valor,
+                    model.observacao,
+                    model.tipo_despesa,
+                    model.subcategoria_fixa,
+                    model.esfera_despesa,
+                    model.litros,
+                    int(item_id),
+                ),
+            )
         conn.commit()
         conn.close()
 
@@ -169,12 +216,19 @@ class DespesasRepository(BaseRepository):
         """Delete despesa by id."""
 
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
-            client.table(self.table_name).delete().eq("id", int(item_id)).execute()
+            query = client.table(self.table_name).delete().eq("id", int(item_id))
+            if user_id is not None:
+                query = query.eq("user_id", int(user_id))
+            query.execute()
             return
 
         conn = self._sqlite()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM despesas WHERE id = ?", (int(item_id),))
+        if user_id is not None:
+            cursor.execute("DELETE FROM despesas WHERE id = ? AND user_id = ?", (int(item_id), int(user_id)))
+        else:
+            cursor.execute("DELETE FROM despesas WHERE id = ?", (int(item_id),))
         conn.commit()
         conn.close()

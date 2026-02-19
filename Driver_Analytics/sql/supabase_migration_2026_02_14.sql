@@ -176,4 +176,102 @@ create table if not exists public.controle_litros (
 create index if not exists idx_controle_litros_data
   on public.controle_litros (data);
 
+-- =============================================
+-- 7) Segurança: usuários, sessões e ownership
+-- =============================================
+alter table public.usuarios
+  add column if not exists must_change_password boolean not null default false;
+
+create table if not exists public.auth_sessions (
+  session_id text primary key,
+  user_id bigint not null references public.usuarios(id) on delete cascade,
+  token_hash text not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  last_seen_at timestamptz,
+  user_agent text
+);
+
+create index if not exists idx_auth_sessions_user_id
+  on public.auth_sessions (user_id);
+
+create index if not exists idx_auth_sessions_expires_at
+  on public.auth_sessions (expires_at);
+
+alter table public.receitas add column if not exists user_id bigint references public.usuarios(id);
+alter table public.despesas add column if not exists user_id bigint references public.usuarios(id);
+alter table public.investimentos add column if not exists user_id bigint references public.usuarios(id);
+alter table public.categorias_despesas add column if not exists user_id bigint references public.usuarios(id);
+alter table public.controle_km add column if not exists user_id bigint references public.usuarios(id);
+alter table public.controle_litros add column if not exists user_id bigint references public.usuarios(id);
+
+create index if not exists idx_receitas_user_id on public.receitas(user_id);
+create index if not exists idx_despesas_user_id on public.despesas(user_id);
+create index if not exists idx_investimentos_user_id on public.investimentos(user_id);
+create index if not exists idx_categorias_despesas_user_id on public.categorias_despesas(user_id);
+create index if not exists idx_controle_km_user_id on public.controle_km(user_id);
+create index if not exists idx_controle_litros_user_id on public.controle_litros(user_id);
+
+alter table public.receitas enable row level security;
+alter table public.despesas enable row level security;
+alter table public.investimentos enable row level security;
+alter table public.categorias_despesas enable row level security;
+alter table public.controle_km enable row level security;
+alter table public.controle_litros enable row level security;
+
+drop policy if exists receitas_owner_select on public.receitas;
+drop policy if exists receitas_owner_insert on public.receitas;
+drop policy if exists receitas_owner_update on public.receitas;
+drop policy if exists receitas_owner_delete on public.receitas;
+create policy receitas_owner_select on public.receitas for select using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy receitas_owner_insert on public.receitas for insert with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy receitas_owner_update on public.receitas for update using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id) with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy receitas_owner_delete on public.receitas for delete using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+
+drop policy if exists despesas_owner_select on public.despesas;
+drop policy if exists despesas_owner_insert on public.despesas;
+drop policy if exists despesas_owner_update on public.despesas;
+drop policy if exists despesas_owner_delete on public.despesas;
+create policy despesas_owner_select on public.despesas for select using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy despesas_owner_insert on public.despesas for insert with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy despesas_owner_update on public.despesas for update using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id) with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy despesas_owner_delete on public.despesas for delete using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+
+drop policy if exists investimentos_owner_select on public.investimentos;
+drop policy if exists investimentos_owner_insert on public.investimentos;
+drop policy if exists investimentos_owner_update on public.investimentos;
+drop policy if exists investimentos_owner_delete on public.investimentos;
+create policy investimentos_owner_select on public.investimentos for select using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy investimentos_owner_insert on public.investimentos for insert with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy investimentos_owner_update on public.investimentos for update using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id) with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy investimentos_owner_delete on public.investimentos for delete using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+
+drop policy if exists categorias_owner_select on public.categorias_despesas;
+drop policy if exists categorias_owner_insert on public.categorias_despesas;
+drop policy if exists categorias_owner_update on public.categorias_despesas;
+drop policy if exists categorias_owner_delete on public.categorias_despesas;
+create policy categorias_owner_select on public.categorias_despesas for select using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy categorias_owner_insert on public.categorias_despesas for insert with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy categorias_owner_update on public.categorias_despesas for update using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id) with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy categorias_owner_delete on public.categorias_despesas for delete using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+
+drop policy if exists controle_km_owner_select on public.controle_km;
+drop policy if exists controle_km_owner_insert on public.controle_km;
+drop policy if exists controle_km_owner_update on public.controle_km;
+drop policy if exists controle_km_owner_delete on public.controle_km;
+create policy controle_km_owner_select on public.controle_km for select using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy controle_km_owner_insert on public.controle_km for insert with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy controle_km_owner_update on public.controle_km for update using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id) with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy controle_km_owner_delete on public.controle_km for delete using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+
+drop policy if exists controle_litros_owner_select on public.controle_litros;
+drop policy if exists controle_litros_owner_insert on public.controle_litros;
+drop policy if exists controle_litros_owner_update on public.controle_litros;
+drop policy if exists controle_litros_owner_delete on public.controle_litros;
+create policy controle_litros_owner_select on public.controle_litros for select using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy controle_litros_owner_insert on public.controle_litros for insert with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy controle_litros_owner_update on public.controle_litros for update using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id) with check (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+create policy controle_litros_owner_delete on public.controle_litros for delete using (coalesce(nullif(current_setting('request.jwt.claims', true), '')::json ->> 'user_id', '-1')::bigint = user_id);
+
 commit;

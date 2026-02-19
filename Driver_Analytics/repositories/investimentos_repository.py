@@ -27,23 +27,41 @@ class InvestimentosRepository(BaseRepository):
 
     def listar(self) -> pd.DataFrame:
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
-            data = client.table(self.table_name).select("*").execute().data
+            query = client.table(self.table_name).select("*")
+            if user_id is not None:
+                query = query.eq("user_id", int(user_id))
+            data = query.execute().data
             return self._normalize(pd.DataFrame(data))
 
         conn = self._sqlite()
-        df = pd.read_sql(f"SELECT * FROM {self.table_name}", conn)
+        if user_id is not None:
+            df = pd.read_sql(f"SELECT * FROM {self.table_name} WHERE user_id = ?", conn, params=(int(user_id),))
+        else:
+            df = pd.read_sql(f"SELECT * FROM {self.table_name}", conn)
         conn.close()
         return self._normalize(df)
 
     def buscar_por_id(self, item_id: int) -> pd.DataFrame:
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
-            data = client.table(self.table_name).select("*").eq("id", item_id).execute().data
+            query = client.table(self.table_name).select("*").eq("id", item_id)
+            if user_id is not None:
+                query = query.eq("user_id", int(user_id))
+            data = query.execute().data
             return self._normalize(pd.DataFrame(data))
 
         conn = self._sqlite()
-        df = pd.read_sql(f"SELECT * FROM {self.table_name} WHERE id = ?", conn, params=(item_id,))
+        if user_id is not None:
+            df = pd.read_sql(
+                f"SELECT * FROM {self.table_name} WHERE id = ? AND user_id = ?",
+                conn,
+                params=(item_id, int(user_id)),
+            )
+        else:
+            df = pd.read_sql(f"SELECT * FROM {self.table_name} WHERE id = ?", conn, params=(item_id,))
         conn.close()
         return self._normalize(df)
 
@@ -62,7 +80,8 @@ class InvestimentosRepository(BaseRepository):
         data_ini = str(data_inicio or data)
         data_end = str(data_fim or data)
         tipo = str(tipo_movimentacao or "").strip()
-        payload = _to_db_record(
+        payload = self._with_user_id(
+            _to_db_record(
             {
                 "data": data,
                 "data_inicio": data_ini,
@@ -74,6 +93,7 @@ class InvestimentosRepository(BaseRepository):
                 "rendimento": float(rendimento),
                 "patrimonio total": float(patrimonio_total),
             }
+            )
         )
 
         client = self._supabase()
@@ -102,12 +122,13 @@ class InvestimentosRepository(BaseRepository):
             cursor.execute(
                 """
                 INSERT INTO investimentos (
-                    data, data_inicio, data_fim, tipo_movimentacao, categoria, aporte,
+                    user_id, data, data_inicio, data_fim, tipo_movimentacao, categoria, aporte,
                     "total aportado", rendimento, "patrimonio total"
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    self._current_user_id(),
                     data,
                     data_ini,
                     data_end,
@@ -122,10 +143,18 @@ class InvestimentosRepository(BaseRepository):
         except Exception:
             cursor.execute(
                 """
-                INSERT INTO investimentos (data, categoria, aporte, "total aportado", rendimento, "patrimonio total")
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO investimentos (user_id, data, categoria, aporte, "total aportado", rendimento, "patrimonio total")
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (data, str(categoria).strip(), float(aporte), float(total_aportado), float(rendimento), float(patrimonio_total)),
+                (
+                    self._current_user_id(),
+                    data,
+                    str(categoria).strip(),
+                    float(aporte),
+                    float(total_aportado),
+                    float(rendimento),
+                    float(patrimonio_total),
+                ),
             )
         conn.commit()
         conn.close()
@@ -146,7 +175,8 @@ class InvestimentosRepository(BaseRepository):
         data_ini = str(data_inicio or data)
         data_end = str(data_fim or data)
         tipo = str(tipo_movimentacao or "").strip()
-        payload = _to_db_record(
+        payload = self._with_user_id(
+            _to_db_record(
             {
                 "data": data,
                 "data_inicio": data_ini,
@@ -158,12 +188,17 @@ class InvestimentosRepository(BaseRepository):
                 "rendimento": float(rendimento),
                 "patrimonio total": float(patrimonio_total),
             }
+            )
         )
 
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
             try:
-                client.table(self.table_name).update(payload).eq("id", int(item_id)).execute()
+                query = client.table(self.table_name).update(payload).eq("id", int(item_id))
+                if user_id is not None:
+                    query = query.eq("user_id", int(user_id))
+                query.execute()
             except Exception as exc:
                 # Backward compatibility: only fallback for missing-column schemas.
                 msg = str(exc).lower()
@@ -177,13 +212,39 @@ class InvestimentosRepository(BaseRepository):
                         fallback_payload.pop(col, None)
                 if fallback_payload == payload:
                     fallback_payload.pop("categoria", None)
-                client.table(self.table_name).update(fallback_payload).eq("id", int(item_id)).execute()
+                query = client.table(self.table_name).update(fallback_payload).eq("id", int(item_id))
+                if user_id is not None:
+                    query = query.eq("user_id", int(user_id))
+                query.execute()
             return
 
         conn = self._sqlite()
         cursor = conn.cursor()
         try:
-            cursor.execute(
+            if user_id is not None:
+                cursor.execute(
+                    """
+                    UPDATE investimentos
+                    SET data = ?, data_inicio = ?, data_fim = ?, tipo_movimentacao = ?, categoria = ?,
+                        aporte = ?, "total aportado" = ?, rendimento = ?, "patrimonio total" = ?
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (
+                        data,
+                        data_ini,
+                        data_end,
+                        tipo,
+                        str(categoria).strip(),
+                        float(aporte),
+                        float(total_aportado),
+                        float(rendimento),
+                        float(patrimonio_total),
+                        int(item_id),
+                        int(user_id),
+                    ),
+                )
+            else:
+                cursor.execute(
                 """
                 UPDATE investimentos
                 SET data = ?, data_inicio = ?, data_fim = ?, tipo_movimentacao = ?, categoria = ?,
@@ -202,28 +263,54 @@ class InvestimentosRepository(BaseRepository):
                     float(patrimonio_total),
                     int(item_id),
                 ),
-            )
+                )
         except Exception:
-            cursor.execute(
+            if user_id is not None:
+                cursor.execute(
+                    """
+                    UPDATE investimentos
+                    SET data = ?, categoria = ?, aporte = ?, "total aportado" = ?, rendimento = ?, "patrimonio total" = ?
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (
+                        data,
+                        str(categoria).strip(),
+                        float(aporte),
+                        float(total_aportado),
+                        float(rendimento),
+                        float(patrimonio_total),
+                        int(item_id),
+                        int(user_id),
+                    ),
+                )
+            else:
+                cursor.execute(
                 """
                 UPDATE investimentos
                 SET data = ?, categoria = ?, aporte = ?, "total aportado" = ?, rendimento = ?, "patrimonio total" = ?
                 WHERE id = ?
                 """,
                 (data, str(categoria).strip(), float(aporte), float(total_aportado), float(rendimento), float(patrimonio_total), int(item_id)),
-            )
+                )
         conn.commit()
         conn.close()
 
     def deletar(self, item_id: int) -> None:
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
-            client.table(self.table_name).delete().eq("id", int(item_id)).execute()
+            query = client.table(self.table_name).delete().eq("id", int(item_id))
+            if user_id is not None:
+                query = query.eq("user_id", int(user_id))
+            query.execute()
             return
 
         conn = self._sqlite()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM investimentos WHERE id = ?", (int(item_id),))
+        if user_id is not None:
+            cursor.execute("DELETE FROM investimentos WHERE id = ? AND user_id = ?", (int(item_id), int(user_id)))
+        else:
+            cursor.execute("DELETE FROM investimentos WHERE id = ?", (int(item_id),))
         conn.commit()
         conn.close()
 

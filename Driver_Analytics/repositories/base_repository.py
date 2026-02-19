@@ -7,6 +7,7 @@ from typing import Iterable
 import pandas as pd
 
 from core.database import get_sqlite_connection, get_supabase_client
+from core.auth import get_logged_user_id
 from domain.validators import ensure_columns
 
 
@@ -74,3 +75,17 @@ class BaseRepository:
 
     def _is_remote(self) -> bool:
         return self._supabase() is not None
+
+    def _current_user_id(self) -> int | None:
+        try:
+            user_id = get_logged_user_id()
+            return int(user_id) if user_id is not None else None
+        except Exception:
+            return None
+
+    def _with_user_id(self, payload: dict) -> dict:
+        out = dict(payload)
+        user_id = self._current_user_id()
+        if user_id is not None:
+            out["user_id"] = int(user_id)
+        return out

@@ -16,15 +16,22 @@ class CategoriasDespesasRepository(BaseRepository):
 
     def listar(self) -> pd.DataFrame:
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
             try:
-                data = client.table(self.table_name).select("*").order("nome").execute().data
+                query = client.table(self.table_name).select("*")
+                if user_id is not None:
+                    query = query.eq("user_id", int(user_id))
+                data = query.order("nome").execute().data
                 return self._normalize(pd.DataFrame(data))
             except Exception:
                 return self._normalize(pd.DataFrame())
 
         conn = self._sqlite()
-        df = pd.read_sql(f"SELECT * FROM {self.table_name} ORDER BY nome", conn)
+        if user_id is not None:
+            df = pd.read_sql(f"SELECT * FROM {self.table_name} WHERE user_id = ? ORDER BY nome", conn, params=(int(user_id),))
+        else:
+            df = pd.read_sql(f"SELECT * FROM {self.table_name} ORDER BY nome", conn)
         conn.close()
         return self._normalize(df)
 
@@ -34,9 +41,13 @@ class CategoriasDespesasRepository(BaseRepository):
             return pd.DataFrame(columns=self.columns)
 
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
             try:
-                data = client.table(self.table_name).select("*").ilike("nome", normalized).execute().data
+                query = client.table(self.table_name).select("*").ilike("nome", normalized)
+                if user_id is not None:
+                    query = query.eq("user_id", int(user_id))
+                data = query.execute().data
                 df = self._normalize(pd.DataFrame(data))
                 if df.empty:
                     return df
@@ -45,11 +56,18 @@ class CategoriasDespesasRepository(BaseRepository):
                 return self._normalize(pd.DataFrame())
 
         conn = self._sqlite()
-        df = pd.read_sql(
-            f"SELECT * FROM {self.table_name} WHERE lower(nome) = lower(?)",
-            conn,
-            params=(normalized,),
-        )
+        if user_id is not None:
+            df = pd.read_sql(
+                f"SELECT * FROM {self.table_name} WHERE lower(nome) = lower(?) AND user_id = ?",
+                conn,
+                params=(normalized, int(user_id)),
+            )
+        else:
+            df = pd.read_sql(
+                f"SELECT * FROM {self.table_name} WHERE lower(nome) = lower(?)",
+                conn,
+                params=(normalized,),
+            )
         conn.close()
         return self._normalize(df)
 
@@ -59,9 +77,13 @@ class CategoriasDespesasRepository(BaseRepository):
             return
 
         client = self._supabase()
+        user_id = self._current_user_id()
         if client:
             try:
-                client.table(self.table_name).insert({"nome": normalized}).execute()
+                payload = {"nome": normalized}
+                if user_id is not None:
+                    payload["user_id"] = int(user_id)
+                client.table(self.table_name).insert(payload).execute()
             except Exception:
                 # If migration was not executed yet, keep app running and allow free-text fallback.
                 return
@@ -69,9 +91,15 @@ class CategoriasDespesasRepository(BaseRepository):
 
         conn = self._sqlite()
         cursor = conn.cursor()
-        cursor.execute(
-            f"INSERT OR IGNORE INTO {self.table_name} (nome) VALUES (?)",
-            (normalized,),
-        )
+        if user_id is not None:
+            cursor.execute(
+                f"INSERT OR IGNORE INTO {self.table_name} (user_id, nome) VALUES (?, ?)",
+                (int(user_id), normalized),
+            )
+        else:
+            cursor.execute(
+                f"INSERT OR IGNORE INTO {self.table_name} (nome) VALUES (?)",
+                (normalized,),
+            )
         conn.commit()
         conn.close()
