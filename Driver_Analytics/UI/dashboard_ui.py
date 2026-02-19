@@ -77,13 +77,26 @@ def _weekday_metric(label: str, count: int) -> str:
     return f"{label} ({int(count)}x)"
 
 
-def _record_alert_once(state_key: str, current_value: int, should_alert: bool, message: str) -> None:
+def _record_alert_once(
+    state_key: str,
+    current_value: int,
+    should_alert: bool,
+    message: str,
+    level: str = "success",
+) -> None:
     if not should_alert:
         return
     seen_value = int(st.session_state.get(state_key, 0))
     if int(current_value) > seen_value:
         st.session_state[state_key] = int(current_value)
-        st.success(message)
+        if level == "warning":
+            st.warning(message)
+        elif level == "error":
+            st.error(message)
+        elif level == "info":
+            st.info(message)
+        else:
+            st.success(message)
 
 
 def pagina_dashboard() -> None:
@@ -161,8 +174,7 @@ def pagina_dashboard() -> None:
 
     km_remunerado = service.metrics.km_total(df_receitas_f)
     km_total_rodado = service.metrics.km_rodado_total_controle(df_controle_km_f)
-    if km_total_rodado <= 0:
-        km_total_rodado = service.metrics.km_rodado_total(df_receitas_f)
+    km_total_rodado = max(float(km_total_rodado), 0.0)
     km_nao_remunerado = float(max(km_total_rodado - km_remunerado, 0.0))
     km_remunerado_pct = float((km_remunerado / km_total_rodado) * 100.0) if km_total_rodado > 0 else 0.0
     km_nao_remunerado_pct = float(100.0 - km_remunerado_pct) if km_total_rodado > 0 else 0.0
@@ -227,10 +239,34 @@ def pagina_dashboard() -> None:
             ]
         )
 
-        _record_alert_once("record_work_streak", int(consistencia["longest_work_streak"]), bool(consistencia["new_work_streak_record"]), "Parabéns! Esse é um novo Record na sequência de trabalho.")
-        _record_alert_once("record_absence_streak", int(consistencia["longest_absence_streak"]), bool(consistencia["new_absence_streak_record"]), "Parabéns! Esse é um novo Record na sequência de dias sem trabalhar.")
-        _record_alert_once("record_meta_hit_streak", int(consistencia["longest_meta_hit_streak"]), bool(consistencia["new_meta_hit_streak_record"]), "Parabéns! Esse é um novo Record na sequência de meta batida.")
-        _record_alert_once("record_meta_miss_streak", int(consistencia["longest_meta_miss_streak"]), bool(consistencia["new_meta_miss_streak_record"]), "Parabéns! Esse é um novo Record na sequência de meta não batida.")
+        _record_alert_once(
+            "record_work_streak",
+            int(consistencia["longest_work_streak"]),
+            bool(consistencia["new_work_streak_record"]),
+            "Parabéns! Esse é um novo recorde na sequência de trabalho.",
+            level="success",
+        )
+        _record_alert_once(
+            "record_absence_streak",
+            int(consistencia["longest_absence_streak"]),
+            bool(consistencia["new_absence_streak_record"]),
+            "Atenção: novo recorde de sequência de dias sem trabalhar.",
+            level="warning",
+        )
+        _record_alert_once(
+            "record_meta_hit_streak",
+            int(consistencia["longest_meta_hit_streak"]),
+            bool(consistencia["new_meta_hit_streak_record"]),
+            "Novo recorde na sequência de meta batida.",
+            level="info",
+        )
+        _record_alert_once(
+            "record_meta_miss_streak",
+            int(consistencia["longest_meta_miss_streak"]),
+            bool(consistencia["new_meta_miss_streak_record"]),
+            "Atenção: novo recorde na sequência de meta não batida.",
+            level="warning",
+        )
 
         titulo_secao("Score do Mês")
         score = service.score_mensal(df_receitas.copy(), df_despesas_negocio.copy())
