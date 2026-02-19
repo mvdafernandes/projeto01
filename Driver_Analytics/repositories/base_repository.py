@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Iterable
 
 import pandas as pd
+import streamlit as st
 
 from core.database import get_sqlite_connection, get_supabase_client
-from core.auth import get_logged_user_id
 from domain.validators import ensure_columns
 
 
@@ -77,11 +77,18 @@ class BaseRepository:
         return self._supabase() is not None
 
     def _current_user_id(self) -> int | None:
+        # Lazy import avoids hard import coupling during app bootstrap/deploy.
         try:
+            from core.auth import get_logged_user_id  # local import on purpose
+
             user_id = get_logged_user_id()
             return int(user_id) if user_id is not None else None
         except Exception:
-            return None
+            try:
+                raw = st.session_state.get("current_user_id")
+                return int(raw) if raw is not None else None
+            except Exception:
+                return None
 
     def _with_user_id(self, payload: dict) -> dict:
         out = dict(payload)
