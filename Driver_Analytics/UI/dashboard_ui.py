@@ -108,16 +108,44 @@ def pagina_dashboard() -> None:
     df_despesas = service.listar_despesas()
     df_controle_km = service.listar_controle_km()
     df_controle_litros = service.listar_controle_litros() if hasattr(service, "listar_controle_litros") else pd.DataFrame()
+    df_investimentos = service.listar_investimentos()
 
     df_receitas, data_col_receitas = _prepare_dates(df_receitas)
     df_despesas, data_col_despesas = _prepare_dates(df_despesas)
+    df_controle_litros, data_col_controle_litros = _prepare_dates(df_controle_litros)
+
+    # Prefer full historical window when data exists to avoid "all-zero" first render.
+    date_series: list[pd.Series] = []
+    for frame, col in [
+        (df_receitas, data_col_receitas),
+        (df_despesas, data_col_despesas),
+        (df_controle_litros, data_col_controle_litros),
+    ]:
+        if isinstance(frame, pd.DataFrame) and not frame.empty and col and col in frame.columns:
+            date_series.append(frame[col].dropna())
+    if isinstance(df_investimentos, pd.DataFrame) and not df_investimentos.empty:
+        inv_col = "data_fim" if "data_fim" in df_investimentos.columns else "data"
+        if inv_col in df_investimentos.columns:
+            inv_dates = pd.to_datetime(df_investimentos[inv_col], errors="coerce").dropna()
+            if not inv_dates.empty:
+                date_series.append(inv_dates)
+
+    today = pd.Timestamp.today().normalize()
+    if date_series:
+        min_available = min(series.min() for series in date_series).normalize()
+        max_available = max(series.max() for series in date_series).normalize()
+    else:
+        min_available = today.replace(day=1)
+        max_available = today
 
     with st.sidebar:
         st.subheader("Filtros")
-        today = pd.Timestamp.today().normalize()
-        default_start = today.replace(day=1)
-        start_date = st.date_input("Data inicial", value=default_start.date(), key="dash_start")
-        end_date = st.date_input("Data final", value=today.date(), key="dash_end")
+        start_date = st.date_input("Data inicial", value=min_available.date(), key="dash_start")
+        end_date = st.date_input("Data final", value=max_available.date(), key="dash_end")
+        if st.button("Usar todo histórico", key="dash_use_full_history"):
+            st.session_state["dash_start"] = min_available.date()
+            st.session_state["dash_end"] = max_available.date()
+            st.rerun()
         show_chart = st.checkbox("Exibir gráfico", value=True, key="dash_show_chart")
 
     start_ts = _safe_to_timestamp(start_date)
@@ -136,7 +164,6 @@ def pagina_dashboard() -> None:
     df_receitas_f = _apply_period(df_receitas, data_col_receitas, start_ts, end_ts)
     df_despesas_f = _apply_period(df_despesas, data_col_despesas, start_ts, end_ts)
     df_controle_km_f = _apply_period_interval(df_controle_km, "data_inicio", "data_fim", start_ts, end_ts)
-    df_controle_litros, data_col_controle_litros = _prepare_dates(df_controle_litros)
     df_controle_litros_f = _apply_period(df_controle_litros, data_col_controle_litros, start_ts, end_ts)
     if "esfera_despesa" in df_despesas_f.columns:
         df_despesas_f = df_despesas_f.copy()
@@ -149,7 +176,6 @@ def pagina_dashboard() -> None:
 
     df_despesas_negocio = df_despesas_f[df_despesas_f["esfera_despesa"] == "NEGOCIO"]
     df_despesas_pessoal = df_despesas_f[df_despesas_f["esfera_despesa"] == "PESSOAL"]
-    df_investimentos = service.listar_investimentos()
     if not df_investimentos.empty:
         df_investimentos = df_investimentos.copy()
         data_inv_col = "data_fim" if "data_fim" in df_investimentos.columns else "data"
