@@ -248,7 +248,7 @@ def _rate_limit_success(action: str, key: str) -> None:
     _set_rate_limit(action, key, 0, None)
 
 
-def _rate_limit_failure(action: str, key: str, max_failures: int = 5, cooldown_minutes: int = 15) -> None:
+def _rate_limit_failure(action: str, key: str, max_failures: int = 10, cooldown_minutes: int = 15) -> None:
     failures, _ = _get_rate_limit(action, key)
     failures += 1
     blocked_until = None
