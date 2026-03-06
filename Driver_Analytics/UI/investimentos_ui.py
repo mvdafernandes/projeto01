@@ -6,12 +6,17 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from services.dashboard_service import DashboardService
 from UI.components import format_currency, formatar_moeda, render_graph, render_kpi, show_empty_data, titulo_secao
 
 
-service = DashboardService()
 CATEGORIAS = ["Renda Fixa", "Renda Variável"]
+
+
+@st.cache_resource
+def _get_dashboard_service():
+    from services.dashboard_service import DashboardService
+
+    return DashboardService()
 
 
 def _format_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -30,6 +35,7 @@ def _format_table(df: pd.DataFrame) -> pd.DataFrame:
 def _prepare_base_df() -> pd.DataFrame:
     """Load and sanitize investment dataframe for downstream analysis."""
 
+    service = _get_dashboard_service()
     df = service.listar_investimentos()
     if df.empty:
         return df
@@ -208,6 +214,7 @@ def _projecao_sem_aportes(patrimonio_inicial: float, taxa_anual_pct: float, anos
 def pagina_investimentos() -> None:
     """Render investment dashboard aligned to aporte/rendimento split model."""
 
+    service = _get_dashboard_service()
     st.header("Investimentos")
     st.info("Cadastros e edições agora ficam na página Cadastros.")
 
