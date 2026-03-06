@@ -147,11 +147,9 @@ class BaseRepository:
             except Exception:
                 pass
 
-        # Keep compatibility: if all rows were owner-less, return them as read-only view.
-        if has_null_owner and not distinct_non_null_ids:
-            return [dict(row) for row in all_data]
-
-        return []
+        # Compatibility fallback: never hide existing remote data in legacy ownership scenarios.
+        # This avoids "all zero" dashboards when user_id history is inconsistent.
+        return [dict(row) for row in all_data]
 
     def _current_user_id(self) -> int | None:
         # Lazy import avoids hard import coupling during app bootstrap/deploy.
