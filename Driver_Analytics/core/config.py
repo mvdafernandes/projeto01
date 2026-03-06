@@ -18,7 +18,7 @@ class Settings:
     supabase_url: str = ""
     supabase_key: str = ""
     app_env: str = "dev"
-    app_db_mode: str = "auto"
+    app_db_mode: str = "remote"
     session_ttl_days: int = 7
     session_rotation_hours: int = 24
     db_name: str = "driver_analytics.db"
@@ -58,9 +58,9 @@ def get_settings() -> Settings:
     """Load effective settings once per cache cycle."""
 
     app_env = (os.getenv("APP_ENV") or _get_secret("APP_ENV", "dev")).strip().lower() or "dev"
-    app_db_mode = (os.getenv("APP_DB_MODE") or _get_secret("APP_DB_MODE", "auto")).strip().lower() or "auto"
+    app_db_mode = (os.getenv("APP_DB_MODE") or _get_secret("APP_DB_MODE", "remote")).strip().lower() or "remote"
     if app_db_mode not in {"auto", "remote", "local"}:
-        app_db_mode = "auto"
+        app_db_mode = "remote"
     try:
         session_ttl_days = int(os.getenv("SESSION_TTL_DAYS") or _get_secret("SESSION_TTL_DAYS", "7"))
     except Exception:
