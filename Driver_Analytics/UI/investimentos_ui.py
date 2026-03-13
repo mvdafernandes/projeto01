@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from Metrics.analytics_investimentos import (
@@ -259,15 +260,29 @@ def _render_projection(df: pd.DataFrame) -> None:
 
         valores = []
         for mes in range(0, int(meses) + 1):
+            patrimonio_mes = float(projecao_com_aporte(analytics_df, taxa_mensal, mes, float(media_aportes)))
+            aportes_mes = float(media_aportes) * int(mes)
+            juros_mes = float(max(0.0, patrimonio_mes - patrimonio_base - aportes_mes))
             valores.append(
                 {
                     "mes": mes,
-                    "patrimonio": float(projecao_com_aporte(analytics_df, taxa_mensal, mes, float(media_aportes))),
+                    "patrimonio": patrimonio_mes,
+                    "aportes_acumulados": float(aportes_mes),
+                    "juros_acumulados": float(juros_mes),
                 }
             )
         proj_df = pd.DataFrame(valores)
-        fig_proj = px.line(proj_df, x="mes", y="patrimonio", markers=True, labels={"mes": "Mês", "patrimonio": "Patrimônio"})
+        fig_proj = go.Figure()
+        fig_proj.add_trace(go.Scatter(x=proj_df["mes"], y=proj_df["patrimonio"], mode="lines+markers", name="Patrimônio total"))
+        fig_proj.add_trace(go.Scatter(x=proj_df["mes"], y=proj_df["aportes_acumulados"], mode="lines", name="Aportes acumulados"))
+        fig_proj.add_trace(go.Scatter(x=proj_df["mes"], y=proj_df["juros_acumulados"], mode="lines", name="Juros acumulados"))
+        fig_proj.update_layout(xaxis_title="Mês", yaxis_title="Valor")
         st.plotly_chart(fig_proj, use_container_width=True)
+        cruzamento_auto = proj_df[proj_df["juros_acumulados"] >= proj_df["aportes_acumulados"]]
+        if not cruzamento_auto.empty:
+            st.caption(f"No simulador da carteira, a curva de juros alcança ou supera a de aportes no mês {int(cruzamento_auto.iloc[0]['mes'])}.")
+        else:
+            st.caption("No horizonte informado, a curva de juros ainda não supera a curva de aportes.")
 
     with sim_custom:
         st.caption("Projeção personalizada com controle do aporte mensal, mantendo a mesma base de patrimônio atual.")
@@ -303,21 +318,29 @@ def _render_projection(df: pd.DataFrame) -> None:
 
         valores_custom = []
         for mes in range(0, int(meses_custom) + 1):
+            patrimonio_mes = float(projecao_com_aporte(analytics_df, taxa_custom_mensal, mes, float(aporte_custom)))
+            aportes_mes = float(aporte_custom) * int(mes)
+            juros_mes = float(max(0.0, patrimonio_mes - patrimonio_base - aportes_mes))
             valores_custom.append(
                 {
                     "mes": mes,
-                    "patrimonio": float(projecao_com_aporte(analytics_df, taxa_custom_mensal, mes, float(aporte_custom))),
+                    "patrimonio": patrimonio_mes,
+                    "aportes_acumulados": float(aportes_mes),
+                    "juros_acumulados": float(juros_mes),
                 }
             )
         proj_custom_df = pd.DataFrame(valores_custom)
-        fig_custom = px.line(
-            proj_custom_df,
-            x="mes",
-            y="patrimonio",
-            markers=True,
-            labels={"mes": "Mês", "patrimonio": "Patrimônio"},
-        )
+        fig_custom = go.Figure()
+        fig_custom.add_trace(go.Scatter(x=proj_custom_df["mes"], y=proj_custom_df["patrimonio"], mode="lines+markers", name="Patrimônio total"))
+        fig_custom.add_trace(go.Scatter(x=proj_custom_df["mes"], y=proj_custom_df["aportes_acumulados"], mode="lines", name="Aportes acumulados"))
+        fig_custom.add_trace(go.Scatter(x=proj_custom_df["mes"], y=proj_custom_df["juros_acumulados"], mode="lines", name="Juros acumulados"))
+        fig_custom.update_layout(xaxis_title="Mês", yaxis_title="Valor")
         st.plotly_chart(fig_custom, use_container_width=True)
+        cruzamento_custom = proj_custom_df[proj_custom_df["juros_acumulados"] >= proj_custom_df["aportes_acumulados"]]
+        if not cruzamento_custom.empty:
+            st.caption(f"No simulador personalizado, a curva de juros alcança ou supera a de aportes no mês {int(cruzamento_custom.iloc[0]['mes'])}.")
+        else:
+            st.caption("No horizonte informado, a curva de juros ainda não supera a curva de aportes.")
 
     st.caption("Ambos os simuladores usam juros compostos sobre o patrimônio atual; o primeiro usa a média histórica de aportes e o segundo permite sobrescrever esse valor.")
 
