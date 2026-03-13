@@ -2,7 +2,7 @@
 
 ## 2026-02-18
 
-- Security: removed session token via querystring and introduced server-side sessions with token hash, TTL, rotation and revocation.
+- Security: removed session token from querystring persistence and kept authentication restricted to in-memory Streamlit session state plus server-side sessions with token hash, TTL, rotation and revocation.
 - Security: default `admin/admin` is now created only when `APP_ENV=dev`, with forced password change on first login.
 - Security: added `core/security/passwords.py` with Argon2id hashing (bcrypt fallback) and upgrade-in-place from legacy hashes.
 - Security: added login and password-recovery rate limiting with neutral response for recovery.
