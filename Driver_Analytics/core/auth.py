@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
-from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -35,7 +34,6 @@ def _safe_iso_date(value: Any) -> str:
 
 
 _AUTH_LAST_ERROR_KEY = "auth_last_error"
-_AUTH_QUERY_PARAM_KEY = "auth_session"
 
 
 def _clear_auth_error() -> None:
@@ -62,33 +60,6 @@ def _set_auth_error(context: str, exc: Exception | None = None) -> None:
 
 def _get_auth_error() -> str:
     return str(st.session_state.get(_AUTH_LAST_ERROR_KEY, "")).strip()
-
-
-def _read_persisted_session() -> tuple[str, str]:
-    """Read browser-persisted auth data from query params when available."""
-
-    try:
-        raw = str(st.query_params.get(_AUTH_QUERY_PARAM_KEY, "")).strip()
-    except Exception:
-        return "", ""
-    if not raw or ":" not in raw:
-        return "", ""
-    session_id, raw_token = raw.split(":", 1)
-    return str(session_id).strip(), str(raw_token).strip()
-
-
-def _persist_session(session_id: str, raw_token: str) -> None:
-    """Mirror session credentials into the browser URL to survive mobile reloads."""
-
-    if not session_id or not raw_token:
-        return
-    with suppress(Exception):
-        st.query_params[_AUTH_QUERY_PARAM_KEY] = f"{session_id}:{raw_token}"
-
-
-def _clear_persisted_session() -> None:
-    with suppress(Exception):
-        st.query_params.pop(_AUTH_QUERY_PARAM_KEY, None)
 
 
 def _check_remote_auth_schema() -> tuple[bool, str]:
@@ -339,7 +310,6 @@ def _maybe_rotate_session(session: dict[str, Any]) -> None:
     old_session_id = str(st.session_state.get("session_id", ""))
     st.session_state.session_id = new_session[0]
     st.session_state.session_token = new_session[1]
-    _persist_session(new_session[0], new_session[1])
     if old_session_id:
         _revoke_session(old_session_id)
 
@@ -429,12 +399,6 @@ def login_required() -> bool:
     if "must_change_password" not in st.session_state:
         st.session_state.must_change_password = False
 
-    if not st.session_state.session_id or not st.session_state.session_token:
-        persisted_session_id, persisted_token = _read_persisted_session()
-        if persisted_session_id and persisted_token:
-            st.session_state.session_id = persisted_session_id
-            st.session_state.session_token = persisted_token
-
     schema_ok, schema_msg = _check_remote_auth_schema()
     if not schema_ok:
         st.error(schema_msg)
@@ -450,12 +414,10 @@ def login_required() -> bool:
             st.session_state.authenticated = True
             st.session_state.current_user = str(session.get("username", ""))
             st.session_state.current_user_id = int(session.get("user_id", 0))
-            _persist_session(st.session_state.session_id, st.session_state.session_token)
             _maybe_rotate_session(session)
         else:
             st.session_state.session_id = ""
             st.session_state.session_token = ""
-            _clear_persisted_session()
 
     if st.session_state.authenticated:
         if bool(st.session_state.get("must_change_password", False)):
@@ -519,7 +481,6 @@ def login_required() -> bool:
             st.session_state.current_user_id = _get_user_id(_get_user(st.session_state.current_user) or auth_user)
             st.session_state.session_id = session[0]
             st.session_state.session_token = session[1]
-            _persist_session(session[0], session[1])
             st.session_state.must_change_password = bool(int(auth_user.get("must_change_password", 0) or 0))
             if st.session_state.must_change_password:
                 st.warning("Troca de senha obrigatória no primeiro login.")
@@ -649,7 +610,6 @@ def render_logout_button() -> None:
             st.session_state.session_id = ""
             st.session_state.session_token = ""
             st.session_state.must_change_password = False
-            _clear_persisted_session()
             st.rerun()
 
 
