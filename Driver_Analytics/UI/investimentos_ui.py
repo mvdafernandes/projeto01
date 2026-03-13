@@ -11,6 +11,7 @@ from Metrics.analytics_investimentos import (
     lucro_acumulado,
     patrimonio_atual as analytics_patrimonio_atual,
     patrimonio_inicial,
+    projecao_com_aporte,
     rentabilidade_percentual,
     total_aportado,
 )
@@ -205,6 +206,48 @@ def _render_charts(df: pd.DataFrame) -> None:
                 labels={"categoria": "Categoria", "valor": "Valor"},
             )
         st.plotly_chart(fig_comp, use_container_width=True)
+
+
+def _render_projection(df: pd.DataFrame) -> None:
+    titulo_secao("Projeções")
+    if df.empty:
+        show_empty_data("Cadastre investimentos para gerar projeções.")
+        return
+
+    analytics_df = _analytics_frame(df)
+    patrimonio_base = float(analytics_patrimonio_atual(analytics_df))
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        taxa_pct = st.number_input("Rentabilidade mensal projetada (%)", min_value=0.0, value=0.8, step=0.1, key="inv_proj_taxa_pct")
+    with col2:
+        meses = st.number_input("Horizonte (meses)", min_value=1, max_value=600, value=12, step=1, key="inv_proj_meses")
+    with col3:
+        aporte_mensal = st.number_input("Aporte mensal projetado", min_value=0.0, value=0.0, step=100.0, key="inv_proj_aporte")
+
+    taxa_mensal = float(taxa_pct) / 100.0
+    valor_projetado = float(projecao_com_aporte(analytics_df, taxa_mensal, int(meses), float(aporte_mensal)))
+    ganho_proj = float(valor_projetado - patrimonio_base)
+
+    kpis = st.columns(3)
+    with kpis[0]:
+        render_kpi("Patrimônio projetado", format_currency(valor_projetado))
+    with kpis[1]:
+        render_kpi("Ganho projetado", format_currency(ganho_proj))
+    with kpis[2]:
+        render_kpi("Aportes futuros", format_currency(float(aporte_mensal) * int(meses)))
+
+    valores = []
+    for mes in range(0, int(meses) + 1):
+        valores.append(
+            {
+                "mes": mes,
+                "patrimonio": float(projecao_com_aporte(analytics_df, taxa_mensal, mes, float(aporte_mensal))),
+            }
+        )
+    proj_df = pd.DataFrame(valores)
+    fig_proj = px.line(proj_df, x="mes", y="patrimonio", markers=True, labels={"mes": "Mês", "patrimonio": "Patrimônio"})
+    st.plotly_chart(fig_proj, use_container_width=True)
+    st.caption("Projeção composta sobre o patrimônio atual, usando taxa mensal e aporte mensal informados.")
 
 
 def _render_forms(df_investimentos: pd.DataFrame) -> None:
@@ -567,6 +610,7 @@ def pagina_investimentos() -> None:
     titulo_secao(titulo)
     _render_summary(df_filtrado)
     _render_charts(df_filtrado)
+    _render_projection(df_filtrado if not df_filtrado.empty else df_investimentos)
     _render_forms(df_investimentos.sort_values(by="id", ascending=False) if not df_investimentos.empty and "id" in df_investimentos.columns else df_investimentos)
     _render_table(df_filtrado if not df_filtrado.empty else df_investimentos)
 
