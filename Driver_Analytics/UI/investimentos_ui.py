@@ -277,7 +277,7 @@ def _render_projection(df: pd.DataFrame) -> None:
         fig_proj.add_trace(go.Scatter(x=proj_df["mes"], y=proj_df["aportes_acumulados"], mode="lines", name="Aportes acumulados"))
         fig_proj.add_trace(go.Scatter(x=proj_df["mes"], y=proj_df["juros_acumulados"], mode="lines", name="Juros acumulados"))
         fig_proj.update_layout(xaxis_title="Mês", yaxis_title="Valor")
-        st.plotly_chart(fig_proj, use_container_width=True)
+        st.plotly_chart(fig_proj, use_container_width=True, key="inv_proj_auto_chart")
         cruzamento_auto = proj_df[proj_df["juros_acumulados"] >= proj_df["aportes_acumulados"]]
         if not cruzamento_auto.empty:
             st.caption(f"No simulador da carteira, a curva de juros alcança ou supera a de aportes no mês {int(cruzamento_auto.iloc[0]['mes'])}.")
@@ -335,7 +335,7 @@ def _render_projection(df: pd.DataFrame) -> None:
         fig_custom.add_trace(go.Scatter(x=proj_custom_df["mes"], y=proj_custom_df["aportes_acumulados"], mode="lines", name="Aportes acumulados"))
         fig_custom.add_trace(go.Scatter(x=proj_custom_df["mes"], y=proj_custom_df["juros_acumulados"], mode="lines", name="Juros acumulados"))
         fig_custom.update_layout(xaxis_title="Mês", yaxis_title="Valor")
-        st.plotly_chart(fig_custom, use_container_width=True)
+        st.plotly_chart(fig_custom, use_container_width=True, key="inv_proj_custom_chart")
         cruzamento_custom = proj_custom_df[proj_custom_df["juros_acumulados"] >= proj_custom_df["aportes_acumulados"]]
         if not cruzamento_custom.empty:
             st.caption(f"No simulador personalizado, a curva de juros alcança ou supera a de aportes no mês {int(cruzamento_custom.iloc[0]['mes'])}.")
