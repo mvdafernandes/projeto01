@@ -216,38 +216,110 @@ def _render_projection(df: pd.DataFrame) -> None:
 
     analytics_df = _analytics_frame(df)
     patrimonio_base = float(analytics_patrimonio_atual(analytics_df))
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        taxa_pct = st.number_input("Rentabilidade mensal projetada (%)", min_value=0.0, value=0.8, step=0.1, key="inv_proj_taxa_pct")
-    with col2:
-        meses = st.number_input("Horizonte (meses)", min_value=1, max_value=600, value=12, step=1, key="inv_proj_meses")
-    with col3:
-        aporte_mensal = st.number_input("Aporte mensal projetado", min_value=0.0, value=0.0, step=100.0, key="inv_proj_aporte")
+    aportes = analytics_df.copy()
+    aportes["data_ref"] = pd.to_datetime(aportes.get("data_fim", aportes.get("data")), errors="coerce")
+    aportes = aportes.dropna(subset=["data_ref"])
+    aportes["aporte"] = pd.to_numeric(aportes["aporte"], errors="coerce").fillna(0.0)
+    aportes = aportes[aportes["aporte"] > 0].copy()
 
-    taxa_mensal = float(taxa_pct) / 100.0
-    valor_projetado = float(projecao_com_aporte(analytics_df, taxa_mensal, int(meses), float(aporte_mensal)))
-    ganho_proj = float(valor_projetado - patrimonio_base)
-
-    kpis = st.columns(3)
-    with kpis[0]:
-        render_kpi("Patrimônio projetado", format_currency(valor_projetado))
-    with kpis[1]:
-        render_kpi("Ganho projetado", format_currency(ganho_proj))
-    with kpis[2]:
-        render_kpi("Aportes futuros", format_currency(float(aporte_mensal) * int(meses)))
-
-    valores = []
-    for mes in range(0, int(meses) + 1):
-        valores.append(
-            {
-                "mes": mes,
-                "patrimonio": float(projecao_com_aporte(analytics_df, taxa_mensal, mes, float(aporte_mensal))),
-            }
+    media_aportes = 0.0
+    if not aportes.empty:
+        mensal = (
+            aportes.assign(mes=aportes["data_ref"].dt.to_period("M").astype(str))
+            .groupby("mes", as_index=False)["aporte"]
+            .sum()
         )
-    proj_df = pd.DataFrame(valores)
-    fig_proj = px.line(proj_df, x="mes", y="patrimonio", markers=True, labels={"mes": "Mês", "patrimonio": "Patrimônio"})
-    st.plotly_chart(fig_proj, use_container_width=True)
-    st.caption("Projeção composta sobre o patrimônio atual, usando taxa mensal e aporte mensal informados.")
+        media_aportes = float(mensal["aporte"].mean()) if not mensal.empty else 0.0
+
+    sim_auto, sim_custom = st.tabs(["Simulador da Carteira", "Simulador Personalizado"])
+
+    with sim_auto:
+        st.caption("Projeção automática com base no patrimônio atual e na média histórica mensal de aportes da carteira.")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            taxa_anual_pct = st.number_input("Taxa anual projetada (%)", min_value=0.0, value=12.0, step=0.5, key="inv_proj_auto_taxa_anual_pct")
+        with col2:
+            anos = st.number_input("Prazo (anos)", min_value=1, max_value=100, value=10, step=1, key="inv_proj_auto_anos")
+        with col3:
+            meses_extra = st.number_input("Meses adicionais", min_value=0, max_value=11, value=0, step=1, key="inv_proj_auto_meses_extra")
+
+        meses = int(anos) * 12 + int(meses_extra)
+        taxa_anual = float(taxa_anual_pct) / 100.0
+        taxa_mensal = (1.0 + taxa_anual) ** (1.0 / 12.0) - 1.0 if taxa_anual > 0 else 0.0
+        valor_projetado = float(projecao_com_aporte(analytics_df, taxa_mensal, int(meses), float(media_aportes)))
+        ganho_proj = float(valor_projetado - patrimonio_base)
+
+        kpis = st.columns(3)
+        with kpis[0]:
+            render_kpi("Patrimônio projetado", format_currency(valor_projetado))
+        with kpis[1]:
+            render_kpi("Ganho projetado", format_currency(ganho_proj))
+        with kpis[2]:
+            render_kpi("Média mensal de aportes", format_currency(float(media_aportes)))
+
+        valores = []
+        for mes in range(0, int(meses) + 1):
+            valores.append(
+                {
+                    "mes": mes,
+                    "patrimonio": float(projecao_com_aporte(analytics_df, taxa_mensal, mes, float(media_aportes))),
+                }
+            )
+        proj_df = pd.DataFrame(valores)
+        fig_proj = px.line(proj_df, x="mes", y="patrimonio", markers=True, labels={"mes": "Mês", "patrimonio": "Patrimônio"})
+        st.plotly_chart(fig_proj, use_container_width=True)
+
+    with sim_custom:
+        st.caption("Projeção personalizada com controle do aporte mensal, mantendo a mesma base de patrimônio atual.")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            taxa_custom_pct = st.number_input("Taxa anual personalizada (%)", min_value=0.0, value=12.0, step=0.5, key="inv_proj_custom_taxa_anual_pct")
+        with col2:
+            anos_custom = st.number_input("Prazo (anos)", min_value=1, max_value=100, value=10, step=1, key="inv_proj_custom_anos")
+        with col3:
+            meses_custom_extra = st.number_input("Meses adicionais", min_value=0, max_value=11, value=0, step=1, key="inv_proj_custom_meses_extra")
+
+        aporte_custom = st.number_input(
+            "Aporte mensal personalizado",
+            min_value=0.0,
+            value=float(media_aportes),
+            step=100.0,
+            key="inv_proj_custom_aporte",
+        )
+
+        meses_custom = int(anos_custom) * 12 + int(meses_custom_extra)
+        taxa_custom_anual = float(taxa_custom_pct) / 100.0
+        taxa_custom_mensal = (1.0 + taxa_custom_anual) ** (1.0 / 12.0) - 1.0 if taxa_custom_anual > 0 else 0.0
+        valor_custom = float(projecao_com_aporte(analytics_df, taxa_custom_mensal, int(meses_custom), float(aporte_custom)))
+        ganho_custom = float(valor_custom - patrimonio_base)
+
+        kpis_custom = st.columns(3)
+        with kpis_custom[0]:
+            render_kpi("Patrimônio projetado", format_currency(valor_custom))
+        with kpis_custom[1]:
+            render_kpi("Ganho projetado", format_currency(ganho_custom))
+        with kpis_custom[2]:
+            render_kpi("Aportes futuros", format_currency(float(aporte_custom) * int(meses_custom)))
+
+        valores_custom = []
+        for mes in range(0, int(meses_custom) + 1):
+            valores_custom.append(
+                {
+                    "mes": mes,
+                    "patrimonio": float(projecao_com_aporte(analytics_df, taxa_custom_mensal, mes, float(aporte_custom))),
+                }
+            )
+        proj_custom_df = pd.DataFrame(valores_custom)
+        fig_custom = px.line(
+            proj_custom_df,
+            x="mes",
+            y="patrimonio",
+            markers=True,
+            labels={"mes": "Mês", "patrimonio": "Patrimônio"},
+        )
+        st.plotly_chart(fig_custom, use_container_width=True)
+
+    st.caption("Ambos os simuladores usam juros compostos sobre o patrimônio atual; o primeiro usa a média histórica de aportes e o segundo permite sobrescrever esse valor.")
 
 
 def _render_forms(df_investimentos: pd.DataFrame) -> None:
