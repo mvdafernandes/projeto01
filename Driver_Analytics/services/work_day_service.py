@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from domain.models import WorkDay, WorkDayEvent
+from repositories.receitas_repository import ReceitasRepository
 from repositories.work_day_events_repository import WorkDayEventsRepository
 from repositories.work_days_repository import WorkDaysRepository
 
@@ -20,6 +22,11 @@ class WorkDayService:
     def __init__(self) -> None:
         self.work_days_repo = WorkDaysRepository()
         self.events_repo = WorkDayEventsRepository()
+        self.receitas_repo = ReceitasRepository()
+
+    @staticmethod
+    def _app_tz() -> ZoneInfo:
+        return ZoneInfo("America/Sao_Paulo")
 
     @staticmethod
     def _utc_now() -> datetime:
@@ -45,6 +52,11 @@ class WorkDayService:
         if pd.isna(parsed):
             return ""
         return parsed.to_pydatetime().isoformat()
+
+    def _build_legacy_day_timestamps(self, work_date: str, worked_seconds: int, start_hour: int = 16) -> tuple[str, str]:
+        start_local = datetime.fromisoformat(f"{work_date}T{int(start_hour):02d}:00:00").replace(tzinfo=self._app_tz())
+        end_local = start_local + pd.Timedelta(seconds=int(max(0, worked_seconds)))
+        return start_local.astimezone(timezone.utc).isoformat(), end_local.astimezone(timezone.utc).isoformat()
 
     @staticmethod
     def _clean_text(value: Any) -> str:
@@ -237,6 +249,161 @@ class WorkDayService:
             raise ValueError("Jornada não encontrada.")
         events = self._serialize_events(self.events_repo.listar_por_work_day(int(work_day_id)))
         return {"work_day": row, "events": events}
+
+    def migrar_receitas_legadas(
+        self,
+        *,
+        simulated_start_hour: int = 16,
+        include_until_today: bool = True,
+        overwrite_existing: bool = False,
+    ) -> dict[str, Any]:
+        """Backfill work_days from legacy receitas grouped by day."""
+
+        receitas = self.receitas_repo.listar()
+        if receitas.empty or "data" not in receitas.columns:
+            return {
+                "migrated_days": 0,
+                "skipped_days": 0,
+                "first_date": "",
+                "last_date": "",
+                "total_km_remunerado": 0.0,
+                "media_km_remunerado": 0.0,
+                "total_minutes": 0,
+            }
+
+        work = receitas.copy()
+        work["data"] = pd.to_datetime(work["data"], errors="coerce")
+        work = work.dropna(subset=["data"])
+        if work.empty:
+            return {
+                "migrated_days": 0,
+                "skipped_days": 0,
+                "first_date": "",
+                "last_date": "",
+                "total_km_remunerado": 0.0,
+                "media_km_remunerado": 0.0,
+                "total_minutes": 0,
+            }
+
+        if "km" not in work.columns:
+            work["km"] = 0.0
+        if "tempo trabalhado" not in work.columns:
+            work["tempo trabalhado"] = 0
+        work["km"] = pd.to_numeric(work["km"], errors="coerce").fillna(0.0)
+        work["tempo trabalhado"] = pd.to_numeric(work["tempo trabalhado"], errors="coerce").fillna(0).astype(int)
+        work["work_date"] = work["data"].dt.date.astype(str)
+
+        if include_until_today:
+            today = pd.Timestamp.now(tz=self._app_tz()).date().isoformat()
+            work = work[work["work_date"] <= today]
+
+        aggregated = (
+            work.groupby("work_date", as_index=False)
+            .agg(
+                km_remunerado=("km", "sum"),
+                worked_seconds=("tempo trabalhado", "sum"),
+                total_valor=("valor", "sum") if "valor" in work.columns else ("km", "sum"),
+                receitas_count=("work_date", "count"),
+            )
+            .sort_values("work_date")
+        )
+        if aggregated.empty:
+            return {
+                "migrated_days": 0,
+                "skipped_days": 0,
+                "first_date": "",
+                "last_date": "",
+                "total_km_remunerado": 0.0,
+                "media_km_remunerado": 0.0,
+                "total_minutes": 0,
+            }
+
+        existing_rows = [self._serialize_day(row) for row in self.work_days_repo.listar_raw()]
+        existing_rows = [row for row in existing_rows if row]
+        existing_by_date = {str(row["work_date"]): row for row in existing_rows}
+        simulated_km_cursor = 0.0
+        if existing_rows:
+            end_values = [self._to_float_or_none(row.get("end_km")) for row in existing_rows]
+            end_values = [value for value in end_values if value is not None]
+            if end_values:
+                simulated_km_cursor = float(max(end_values))
+
+        migrated_days = 0
+        skipped_days = 0
+        total_km = 0.0
+        total_minutes = 0
+        first_date = str(aggregated.iloc[0]["work_date"])
+        last_date = str(aggregated.iloc[-1]["work_date"])
+
+        for row in aggregated.to_dict(orient="records"):
+            work_date = str(row["work_date"])
+            km_remunerado = float(row.get("km_remunerado") or 0.0)
+            worked_seconds = int(row.get("worked_seconds") or 0)
+            worked_minutes = int(max(0, worked_seconds) // 60)
+            start_time, end_time = self._build_legacy_day_timestamps(work_date, worked_seconds, start_hour=simulated_start_hour)
+            start_km = float(simulated_km_cursor)
+            end_km = float(start_km + km_remunerado)
+
+            payload = WorkDay.from_raw(
+                {
+                    "work_date": work_date,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "start_time_source": "manual",
+                    "end_time_source": "manual",
+                    "start_km": start_km,
+                    "end_km": end_km,
+                    "notes": (
+                        "Backfill legado de receitas: inicio simulado as "
+                        f"{int(simulated_start_hour):02d}:00, KM remunerado agregado do dia e "
+                        "hodometro cumulativo sintetico."
+                    ),
+                }
+            ).to_record()
+
+            existing = existing_by_date.get(work_date)
+            if existing and not overwrite_existing:
+                skipped_days += 1
+                simulated_km_cursor = max(simulated_km_cursor, self._to_float_or_none(existing.get("end_km")) or end_km)
+                continue
+
+            old_value = existing if existing else None
+            if existing and overwrite_existing:
+                payload["is_manually_adjusted"] = True
+                self.work_days_repo.atualizar(int(existing["id"]), payload)
+                work_day_id = int(existing["id"])
+            else:
+                created = self.work_days_repo.inserir(payload)
+                work_day_id = int(created.get("id", 0))
+
+            self._recalculate_all()
+            refreshed = self._serialize_day(self.work_days_repo.buscar_por_id(work_day_id))
+            self._write_event(
+                work_day_id,
+                "manual_create" if old_value is None else "manual_edit",
+                km_value=km_remunerado,
+                old_value=old_value,
+                new_value=refreshed,
+                notes=(
+                    "Migracao historica automatica baseada em receitas agregadas do dia; "
+                    f"tempo_total={worked_minutes}min, km_remunerado={km_remunerado:.1f}."
+                ),
+            )
+            migrated_days += 1
+            total_km += km_remunerado
+            total_minutes += worked_minutes
+            simulated_km_cursor = end_km
+
+        media_km = float(total_km / migrated_days) if migrated_days > 0 else 0.0
+        return {
+            "migrated_days": int(migrated_days),
+            "skipped_days": int(skipped_days),
+            "first_date": first_date,
+            "last_date": last_date,
+            "total_km_remunerado": float(total_km),
+            "media_km_remunerado": media_km,
+            "total_minutes": int(total_minutes),
+        }
 
     def iniciar_jornada(self, start_km: float, notes: str = "") -> dict:
         open_day = self.work_days_repo.buscar_aberta()

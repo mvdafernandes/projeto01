@@ -113,6 +113,46 @@ def _work_day_bootstrap_message(exc: Exception) -> str:
     return f"Falha ao carregar Jornada: {message}"
 
 
+def _render_legacy_backfill() -> None:
+    titulo_secao("Migracao Historica")
+    with st.expander("Migrar jornadas legadas a partir de receitas", expanded=False):
+        st.caption(
+            "Backfill seguro: agrupa receitas por data, simula inicio as 16:00, "
+            "encerra com base no tempo trabalhado registrado e soma o KM remunerado do dia."
+        )
+        with st.form("work_day_legacy_backfill_form"):
+            start_hour = st.number_input("Hora inicial simulada", min_value=0, max_value=23, value=16, step=1, key="wd_backfill_start_hour")
+            overwrite = st.checkbox("Sobrescrever jornadas ja existentes nas mesmas datas", key="wd_backfill_overwrite")
+            confirm = st.checkbox("Confirmo que desejo migrar jornadas historicas com simulacao de horario/KM", key="wd_backfill_confirm")
+            submit = st.form_submit_button("Executar migracao historica")
+            if submit:
+                if not confirm:
+                    st.warning("Confirme a migracao para continuar.")
+                else:
+                    try:
+                        resultado = service.migrar_receitas_legadas(
+                            simulated_start_hour=int(start_hour),
+                            overwrite_existing=bool(overwrite),
+                        )
+                        st.success("Migracao historica concluida.")
+                        cols = st.columns(3)
+                        with cols[0]:
+                            render_kpi("Dias migrados", int(resultado["migrated_days"]))
+                        with cols[1]:
+                            render_kpi("KM remunerado total", _format_km(resultado["total_km_remunerado"]))
+                        with cols[2]:
+                            render_kpi("Media KM/dia", _format_km(resultado["media_km_remunerado"]))
+                        st.caption(
+                            "Periodo migrado: "
+                            f"{resultado['first_date'] or '-'} ate {resultado['last_date'] or '-'} | "
+                            f"Dias ignorados: {int(resultado['skipped_days'])} | "
+                            f"Tempo total: {_format_minutes(resultado['total_minutes'])}"
+                        )
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
+
+
 def _render_current_status(jornadas: list[dict]) -> dict | None:
     titulo_secao("Status Atual")
     aberta = next((row for row in jornadas if row.get("status") == "open"), None)
@@ -422,6 +462,7 @@ def pagina_jornada() -> None:
             render_kpi("Tempo final", _format_minutes(total_minutes))
 
     _render_auto_flow(aberta)
+    _render_legacy_backfill()
     _render_manual_create()
     _render_manual_edit(jornadas)
     _render_history(jornadas)

@@ -6,6 +6,8 @@ import copy
 import unittest
 from datetime import datetime, timezone
 
+import pandas as pd
+
 from UI.jornada_ui import _work_day_bootstrap_message
 from services.work_day_service import WorkDayService
 
@@ -89,11 +91,20 @@ class _FakeWorkDayEventsRepository:
         return pd.DataFrame(rows)
 
 
+class _FakeReceitasRepository:
+    def __init__(self, rows: list[dict] | None = None):
+        self.rows = rows or []
+
+    def listar(self):
+        return pd.DataFrame(copy.deepcopy(self.rows))
+
+
 class WorkDayServiceTests(unittest.TestCase):
     def setUp(self):
         self.service = WorkDayService()
         self.service.work_days_repo = _FakeWorkDaysRepository()
         self.service.events_repo = _FakeWorkDayEventsRepository()
+        self.service.receitas_repo = _FakeReceitasRepository()
 
     def test_iniciar_jornada_cria_open_e_registra_evento(self):
         self.service._utc_now = lambda: datetime(2026, 3, 16, 8, 0, tzinfo=timezone.utc)
@@ -196,6 +207,30 @@ class WorkDayServiceTests(unittest.TestCase):
         message = _work_day_bootstrap_message(RuntimeError("Falha ao consultar work_days no Supabase: relation \"public.work_days\" does not exist"))
         self.assertIn("20260316130000__add_work_days_module.sql", message)
         self.assertIn("Jornada", message)
+
+    def test_migrar_receitas_legadas_agrega_por_dia_e_simula_jornada(self):
+        self.service.receitas_repo = _FakeReceitasRepository(
+            [
+                {"data": "2026-03-10", "km": 40.0, "tempo trabalhado": 3600, "valor": 100.0},
+                {"data": "2026-03-10", "km": 20.0, "tempo trabalhado": 1800, "valor": 50.0},
+                {"data": "2026-03-11", "km": 30.0, "tempo trabalhado": 5400, "valor": 80.0},
+            ]
+        )
+
+        result = self.service.migrar_receitas_legadas(simulated_start_hour=16)
+
+        self.assertEqual(result["migrated_days"], 2)
+        self.assertEqual(result["skipped_days"], 0)
+        self.assertAlmostEqual(result["total_km_remunerado"], 90.0)
+        self.assertAlmostEqual(result["media_km_remunerado"], 45.0)
+        jornadas = self.service.listar_jornadas()
+        self.assertEqual(len(jornadas), 2)
+        earliest = sorted(jornadas, key=lambda row: row["work_date"])[0]
+        self.assertEqual(earliest["work_date"], "2026-03-10")
+        self.assertAlmostEqual(earliest["start_km"], 0.0)
+        self.assertAlmostEqual(earliest["end_km"], 60.0)
+        self.assertEqual(earliest["status"], "manual")
+        self.assertEqual(earliest["worked_minutes_final"], 90)
 
 
 if __name__ == "__main__":
