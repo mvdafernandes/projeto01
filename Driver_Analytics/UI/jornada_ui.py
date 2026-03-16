@@ -26,6 +26,7 @@ EVENT_LABELS = {
     "manual_edit": "Edição manual",
     "manual_complete": "Complemento manual",
 }
+WORK_DAY_MIGRATION_FILE = "sql/migrations/20260316130000__add_work_days_module.sql"
 
 
 def _safe_dt(value):
@@ -100,6 +101,16 @@ def _event_summary(value) -> str:
             formatted = str(raw)
         parts.append(f"{key}: {formatted}")
     return " | ".join(parts) if parts else "-"
+
+
+def _work_day_bootstrap_message(exc: Exception) -> str:
+    message = str(exc or "")
+    if "work_days" in message or "work_day_events" in message:
+        return (
+            "O modulo Jornada ainda nao esta disponivel neste ambiente. "
+            f"Aplique a migration `{WORK_DAY_MIGRATION_FILE}` no projeto Supabase usado pelo deploy e reinicie o app."
+        )
+    return f"Falha ao carregar Jornada: {message}"
 
 
 def _render_current_status(jornadas: list[dict]) -> dict | None:
@@ -391,7 +402,11 @@ def _render_history(jornadas: list[dict]) -> None:
 
 def pagina_jornada() -> None:
     st.header("Jornada")
-    jornadas = service.listar_jornadas()
+    try:
+        jornadas = service.listar_jornadas()
+    except Exception as exc:
+        st.error(_work_day_bootstrap_message(exc))
+        st.stop()
     aberta = _render_current_status(jornadas)
 
     if jornadas:

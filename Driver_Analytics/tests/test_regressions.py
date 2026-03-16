@@ -57,7 +57,7 @@ class RegressionTests(unittest.TestCase):
         self.assertIn("_render_projection", function_names)
 
     def test_latest_rls_migration_does_not_depend_on_supabase_auth_claims(self):
-        migration_path = PROJECT_ROOT / "sql" / "migrations" / "20260316_0900__align_rls_with_custom_auth_backend.sql"
+        migration_path = PROJECT_ROOT / "sql" / "migrations" / "20260316090000__align_rls_with_custom_auth_backend.sql"
         source = migration_path.read_text(encoding="utf-8")
 
         self.assertNotIn("auth.uid()", source)

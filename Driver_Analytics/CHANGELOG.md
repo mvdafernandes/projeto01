@@ -8,7 +8,7 @@
 
 ## 2026-03-16
 
-- Security: added `sql/migrations/20260316_0900__align_rls_with_custom_auth_backend.sql` to remove claim-based RLS assumptions and lock private tables to backend `service_role` access only, consistent with the project's custom authentication model.
+- Security: added `sql/migrations/20260316090000__align_rls_with_custom_auth_backend.sql` to remove claim-based RLS assumptions and lock private tables to backend `service_role` access only, consistent with the project's custom authentication model.
 
 ## 2026-02-18
 

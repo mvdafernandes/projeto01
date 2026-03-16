@@ -33,7 +33,7 @@ Aplicar em ordem:
 2. `sql/migrations/20260218_0900__security_sessions_user_ownership.sql`
 3. `sql/migrations/20260305_1200__disable_rls_and_backfill_user_id.sql`
 4. `sql/migrations/20260313_0900__reenable_rls_and_harden_privileges.sql`
-5. `sql/migrations/20260316_0900__align_rls_with_custom_auth_backend.sql`
+5. `sql/migrations/20260316090000__align_rls_with_custom_auth_backend.sql`
 
 Recomendação operacional:
 

@@ -6,9 +6,6 @@ begin;
 -- to private tables based on JWT claims that do not exist in this architecture.
 -- The backend may use the service_role key, which bypasses RLS by design.
 
--- Remove claim-based helper introduced by previous hardening attempts.
-drop function if exists public.app_current_user_id();
-
 -- Direct client roles should not use the private application schema.
 revoke usage on schema public from anon, authenticated;
 grant usage on schema public to service_role;
@@ -119,5 +116,9 @@ begin
     drop policy if exists controle_litros_owner_delete on public.controle_litros;
   end if;
 end $$;
+
+-- Remove claim-based helper introduced by previous hardening attempts only
+-- after dependent policies have been removed.
+drop function if exists public.app_current_user_id();
 
 commit;
