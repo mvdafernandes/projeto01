@@ -105,6 +105,10 @@ class _RecordingClient:
 
 
 class SecurityStrategyTests(unittest.TestCase):
+    def test_username_normalization_is_case_insensitive_for_mobile_keyboards(self):
+        self.assertEqual(auth._normalize_username(" Admin "), "admin")
+        self.assertEqual(auth._normalize_username("ALICE"), "alice")
+
     def test_cookie_session_roundtrip_preserves_session_credentials(self):
         encoded = auth._encode_cookie_session("sess-1", "token-1")
 
@@ -180,6 +184,17 @@ class SecurityStrategyTests(unittest.TestCase):
         self.assertEqual(session["user_id"], 10)
         self.assertEqual(session["username"], "alice")
         self.assertEqual([call["table"] for call in client.calls], ["auth_sessions", "auth_sessions", "usuarios"])
+
+    @patch("core.auth.get_supabase_client")
+    def test_authenticate_user_accepts_username_with_different_case(self, get_client_mock):
+        password_hash = auth.legacy_hash_password("senha123")
+        client = _RecordingClient({"usuarios": [{"id": 10, "username": "admin", "password_hash": password_hash}]})
+        get_client_mock.return_value = client
+
+        authenticated, user = auth._authenticate_user("Admin", "senha123")
+
+        self.assertTrue(authenticated)
+        self.assertEqual(user["username"], "admin")
 
     @patch("repositories.receitas_repository.ReceitasRepository._current_user_id")
     def test_private_repo_read_requires_user_context(self, current_user_id_mock):

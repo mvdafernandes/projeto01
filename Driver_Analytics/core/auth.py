@@ -31,7 +31,7 @@ def _utc_now() -> datetime:
 
 
 def _normalize_username(value: str) -> str:
-    return str(value or "").strip()
+    return str(value or "").strip().casefold()
 
 
 def _normalize_cpf(value: str) -> str:
@@ -238,7 +238,7 @@ def _supabase_get_user(username: str) -> dict[str, Any] | None:
         return None
     username_n = _normalize_username(username)
     try:
-        data = client.table("usuarios").select("*").eq("username", username_n).limit(1).execute().data
+        data = client.table("usuarios").select("*").ilike("username", username_n).limit(1).execute().data
     except Exception as exc:
         _set_auth_error("Falha ao consultar usuário no Supabase.", exc)
         return None
