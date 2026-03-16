@@ -227,8 +227,9 @@ class WorkDayServiceTests(unittest.TestCase):
         self.assertEqual(len(jornadas), 2)
         earliest = sorted(jornadas, key=lambda row: row["work_date"])[0]
         self.assertEqual(earliest["work_date"], "2026-03-10")
-        self.assertAlmostEqual(earliest["start_km"], 0.0)
-        self.assertAlmostEqual(earliest["end_km"], 60.0)
+        self.assertIsNone(earliest["start_km"])
+        self.assertIsNone(earliest["end_km"])
+        self.assertAlmostEqual(earliest["km_remunerado"], 60.0)
         self.assertEqual(earliest["status"], "manual")
         self.assertEqual(earliest["worked_minutes_final"], 90)
 

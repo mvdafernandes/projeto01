@@ -158,7 +158,8 @@ class WorkDayService:
         has_end_time = bool(self._clean_text(row.get("end_time")))
         has_start_km = self._to_float_or_none(row.get("start_km")) is not None
         has_end_km = self._to_float_or_none(row.get("end_km")) is not None
-        complete = has_start_time and has_end_time and has_start_km and has_end_km
+        has_km_remunerado = self._to_float_or_none(row.get("km_remunerado")) is not None
+        complete = has_start_time and has_end_time and ((has_start_km and has_end_km) or has_km_remunerado)
         if complete:
             if bool(row.get("is_manually_adjusted", False)):
                 return "adjusted"
@@ -215,7 +216,11 @@ class WorkDayService:
 
             worked_manual = self._to_int_or_none(row.get("worked_minutes_manual"))
             worked_final = worked_manual if worked_manual is not None else worked_calculated
-            km_remunerado = (end_km - start_km) if start_km is not None and end_km is not None else None
+            km_remunerado = (
+                end_km - start_km
+                if start_km is not None and end_km is not None
+                else self._to_float_or_none(row.get("km_remunerado"))
+            )
             km_gap = (start_km - previous_closed_end_km) if start_km is not None and previous_closed_end_km is not None else None
 
             current = dict(row)
@@ -321,13 +326,6 @@ class WorkDayService:
         existing_rows = [self._serialize_day(row) for row in self.work_days_repo.listar_raw()]
         existing_rows = [row for row in existing_rows if row]
         existing_by_date = {str(row["work_date"]): row for row in existing_rows}
-        simulated_km_cursor = 0.0
-        if existing_rows:
-            end_values = [self._to_float_or_none(row.get("end_km")) for row in existing_rows]
-            end_values = [value for value in end_values if value is not None]
-            if end_values:
-                simulated_km_cursor = float(max(end_values))
-
         migrated_days = 0
         skipped_days = 0
         total_km = 0.0
@@ -341,8 +339,6 @@ class WorkDayService:
             worked_seconds = int(row.get("worked_seconds") or 0)
             worked_minutes = int(max(0, worked_seconds) // 60)
             start_time, end_time = self._build_legacy_day_timestamps(work_date, worked_seconds, start_hour=simulated_start_hour)
-            start_km = float(simulated_km_cursor)
-            end_km = float(start_km + km_remunerado)
 
             payload = WorkDay.from_raw(
                 {
@@ -351,12 +347,13 @@ class WorkDayService:
                     "end_time": end_time,
                     "start_time_source": "manual",
                     "end_time_source": "manual",
-                    "start_km": start_km,
-                    "end_km": end_km,
+                    "start_km": None,
+                    "end_km": None,
+                    "km_remunerado": km_remunerado,
                     "notes": (
                         "Backfill legado de receitas: inicio simulado as "
-                        f"{int(simulated_start_hour):02d}:00, KM remunerado agregado do dia e "
-                        "hodometro cumulativo sintetico."
+                        f"{int(simulated_start_hour):02d}:00, tempo trabalhado agregado e "
+                        "KM remunerado diario sem hodometro."
                     ),
                 }
             ).to_record()
@@ -364,7 +361,6 @@ class WorkDayService:
             existing = existing_by_date.get(work_date)
             if existing and not overwrite_existing:
                 skipped_days += 1
-                simulated_km_cursor = max(simulated_km_cursor, self._to_float_or_none(existing.get("end_km")) or end_km)
                 continue
 
             old_value = existing if existing else None
@@ -392,7 +388,6 @@ class WorkDayService:
             migrated_days += 1
             total_km += km_remunerado
             total_minutes += worked_minutes
-            simulated_km_cursor = end_km
 
         media_km = float(total_km / migrated_days) if migrated_days > 0 else 0.0
         return {

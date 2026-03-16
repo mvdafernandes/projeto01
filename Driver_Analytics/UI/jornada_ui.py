@@ -118,12 +118,12 @@ def _render_legacy_backfill() -> None:
     with st.expander("Migrar jornadas legadas a partir de receitas", expanded=False):
         st.caption(
             "Backfill seguro: agrupa receitas por data, simula inicio as 16:00, "
-            "encerra com base no tempo trabalhado registrado e soma o KM remunerado do dia."
+            "encerra com base no tempo trabalhado registrado e migra apenas o KM remunerado do dia."
         )
         with st.form("work_day_legacy_backfill_form"):
             start_hour = st.number_input("Hora inicial simulada", min_value=0, max_value=23, value=16, step=1, key="wd_backfill_start_hour")
             overwrite = st.checkbox("Sobrescrever jornadas ja existentes nas mesmas datas", key="wd_backfill_overwrite")
-            confirm = st.checkbox("Confirmo que desejo migrar jornadas historicas com simulacao de horario/KM", key="wd_backfill_confirm")
+            confirm = st.checkbox("Confirmo que desejo migrar jornadas historicas com simulacao de horario e KM diario agregado", key="wd_backfill_confirm")
             submit = st.form_submit_button("Executar migracao historica")
             if submit:
                 if not confirm:
