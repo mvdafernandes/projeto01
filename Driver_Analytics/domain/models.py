@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Any
 
 from domain.validators import sanitize_nullable_text, safe_float, safe_int, to_iso_date
 
@@ -139,6 +140,94 @@ class ControleLitros:
         return cls(
             data=to_iso_date(payload.get("data", ""), fallback=""),
             litros=safe_float(payload.get("litros", 0.0), 0.0),
+        )
+
+    def to_record(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class WorkDay:
+    """Work day model used by automatic and manual journey flows."""
+
+    work_date: str
+    start_time: str = ""
+    end_time: str = ""
+    start_time_source: str = "auto"
+    end_time_source: str = "auto"
+    start_km: float | None = None
+    end_km: float | None = None
+    km_remunerado: float | None = None
+    km_nao_remunerado_antes: float | None = None
+    worked_minutes_calculated: int | None = None
+    worked_minutes_manual: int | None = None
+    worked_minutes_final: int | None = None
+    status: str = "partial"
+    is_manually_adjusted: bool = False
+    notes: str = ""
+
+    @classmethod
+    def from_raw(cls, payload: dict[str, Any]) -> "WorkDay":
+        return cls(
+            work_date=to_iso_date(payload.get("work_date", payload.get("work_date", "")), fallback=""),
+            start_time=sanitize_nullable_text(payload.get("start_time", "")),
+            end_time=sanitize_nullable_text(payload.get("end_time", "")),
+            start_time_source=sanitize_nullable_text(payload.get("start_time_source", "auto")).lower() or "auto",
+            end_time_source=sanitize_nullable_text(payload.get("end_time_source", "auto")).lower() or "auto",
+            start_km=safe_float(payload.get("start_km"), 0.0) if payload.get("start_km") is not None else None,
+            end_km=safe_float(payload.get("end_km"), 0.0) if payload.get("end_km") is not None else None,
+            km_remunerado=safe_float(payload.get("km_remunerado"), 0.0) if payload.get("km_remunerado") is not None else None,
+            km_nao_remunerado_antes=(
+                safe_float(payload.get("km_nao_remunerado_antes"), 0.0)
+                if payload.get("km_nao_remunerado_antes") is not None
+                else None
+            ),
+            worked_minutes_calculated=(
+                safe_int(payload.get("worked_minutes_calculated"), 0)
+                if payload.get("worked_minutes_calculated") is not None
+                else None
+            ),
+            worked_minutes_manual=(
+                safe_int(payload.get("worked_minutes_manual"), 0) if payload.get("worked_minutes_manual") is not None else None
+            ),
+            worked_minutes_final=(
+                safe_int(payload.get("worked_minutes_final"), 0) if payload.get("worked_minutes_final") is not None else None
+            ),
+            status=sanitize_nullable_text(payload.get("status", "partial")).lower() or "partial",
+            is_manually_adjusted=bool(payload.get("is_manually_adjusted", False)),
+            notes=sanitize_nullable_text(payload.get("notes", "")),
+        )
+
+    def to_record(self) -> dict:
+        record = asdict(self)
+        for key in ("start_time", "end_time"):
+            if not record[key]:
+                record[key] = None
+        return record
+
+
+@dataclass
+class WorkDayEvent:
+    """Work day event model for check-in/out and manual edits."""
+
+    work_day_id: int
+    event_type: str
+    event_timestamp: str
+    km_value: float | None = None
+    old_value: dict[str, Any] | None = None
+    new_value: dict[str, Any] | None = None
+    notes: str = ""
+
+    @classmethod
+    def from_raw(cls, payload: dict[str, Any]) -> "WorkDayEvent":
+        return cls(
+            work_day_id=safe_int(payload.get("work_day_id"), 0),
+            event_type=sanitize_nullable_text(payload.get("event_type", "")).lower(),
+            event_timestamp=sanitize_nullable_text(payload.get("event_timestamp", "")),
+            km_value=safe_float(payload.get("km_value"), 0.0) if payload.get("km_value") is not None else None,
+            old_value=payload.get("old_value") if isinstance(payload.get("old_value"), dict) else None,
+            new_value=payload.get("new_value") if isinstance(payload.get("new_value"), dict) else None,
+            notes=sanitize_nullable_text(payload.get("notes", "")),
         )
 
     def to_record(self) -> dict:

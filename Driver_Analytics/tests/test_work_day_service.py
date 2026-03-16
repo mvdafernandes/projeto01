@@ -1,0 +1,196 @@
+"""Tests for jornada de trabalho service rules."""
+
+from __future__ import annotations
+
+import copy
+import unittest
+from datetime import datetime, timezone
+
+from services.work_day_service import WorkDayService
+
+
+class _FakeWorkDaysRepository:
+    def __init__(self):
+        self.rows: list[dict] = []
+        self.next_id = 1
+
+    def listar_raw(self):
+        return [copy.deepcopy(row) for row in self.rows]
+
+    def buscar_por_id(self, item_id: int):
+        for row in self.rows:
+            if int(row["id"]) == int(item_id):
+                return copy.deepcopy(row)
+        return None
+
+    def buscar_aberta(self):
+        for row in sorted(self.rows, key=lambda item: item.get("created_at", ""), reverse=True):
+            if row.get("status") == "open":
+                return copy.deepcopy(row)
+        return None
+
+    def buscar_incompleta_por_data(self, work_date: str):
+        candidates = [row for row in self.rows if str(row.get("work_date")) == str(work_date) and row.get("status") in {"partial", "open"}]
+        if not candidates:
+            return None
+        return copy.deepcopy(sorted(candidates, key=lambda item: item.get("created_at", ""), reverse=True)[0])
+
+    def buscar_ultima_fechada_antes(self, work_date: str, current_id: int | None = None):
+        candidates = [
+            row
+            for row in self.rows
+            if row.get("status") in {"closed", "adjusted", "manual"}
+            and str(row.get("work_date")) < str(work_date)
+            and (current_id is None or int(row["id"]) != int(current_id))
+        ]
+        if not candidates:
+            return None
+        return copy.deepcopy(sorted(candidates, key=lambda item: (item.get("work_date", ""), item["id"]), reverse=True)[0])
+
+    def inserir(self, payload: dict):
+        row = copy.deepcopy(payload)
+        row["id"] = self.next_id
+        self.next_id += 1
+        row.setdefault("created_at", f"2026-03-{row['id']:02d}T00:00:00+00:00")
+        row.setdefault("updated_at", row["created_at"])
+        self.rows.append(row)
+        return copy.deepcopy(row)
+
+    def atualizar(self, item_id: int, payload: dict):
+        for idx, row in enumerate(self.rows):
+            if int(row["id"]) == int(item_id):
+                self.rows[idx] = {**row, **copy.deepcopy(payload), "id": int(item_id)}
+                if not self.rows[idx].get("updated_at"):
+                    self.rows[idx]["updated_at"] = self.rows[idx].get("created_at")
+                return copy.deepcopy(self.rows[idx])
+        return None
+
+    def deletar(self, item_id: int):
+        self.rows = [row for row in self.rows if int(row["id"]) != int(item_id)]
+
+
+class _FakeWorkDayEventsRepository:
+    def __init__(self):
+        self.rows: list[dict] = []
+        self.next_id = 1
+
+    def inserir(self, payload: dict):
+        row = copy.deepcopy(payload)
+        row["id"] = self.next_id
+        self.next_id += 1
+        self.rows.append(row)
+        return copy.deepcopy(row)
+
+    def listar_por_work_day(self, work_day_id: int):
+        import pandas as pd
+
+        rows = [copy.deepcopy(row) for row in self.rows if int(row["work_day_id"]) == int(work_day_id)]
+        return pd.DataFrame(rows)
+
+
+class WorkDayServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.service = WorkDayService()
+        self.service.work_days_repo = _FakeWorkDaysRepository()
+        self.service.events_repo = _FakeWorkDayEventsRepository()
+
+    def test_iniciar_jornada_cria_open_e_registra_evento(self):
+        self.service._utc_now = lambda: datetime(2026, 3, 16, 8, 0, tzinfo=timezone.utc)
+        self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-15",
+                "start_time": "2026-03-15T08:00:00+00:00",
+                "end_time": "2026-03-15T18:00:00+00:00",
+                "start_time_source": "auto",
+                "end_time_source": "auto",
+                "start_km": 100.0,
+                "end_km": 180.0,
+                "status": "closed",
+                "created_at": "2026-03-15T08:00:00+00:00",
+                "updated_at": "2026-03-15T18:00:00+00:00",
+            }
+        )
+
+        detail = self.service.iniciar_jornada(start_km=200.0, notes="Inicio")
+
+        self.assertEqual(detail["work_day"]["status"], "open")
+        self.assertEqual(detail["work_day"]["start_km"], 200.0)
+        self.assertEqual(detail["work_day"]["km_nao_remunerado_antes"], 20.0)
+        self.assertEqual(detail["events"][0]["event_type"], "check_in")
+
+    def test_iniciar_jornada_bloqueia_segunda_aberta(self):
+        self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-16",
+                "start_time": "2026-03-16T08:00:00+00:00",
+                "start_time_source": "auto",
+                "start_km": 200.0,
+                "status": "open",
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            self.service.iniciar_jornada(start_km=220.0)
+
+    def test_encerrar_jornada_calcula_km_e_tempo(self):
+        self.service._utc_now = lambda: datetime(2026, 3, 16, 18, 30, tzinfo=timezone.utc)
+        row = self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-16",
+                "start_time": "2026-03-16T08:00:00+00:00",
+                "start_time_source": "auto",
+                "start_km": 200.0,
+                "status": "open",
+                "created_at": "2026-03-16T08:00:00+00:00",
+                "updated_at": "2026-03-16T08:00:00+00:00",
+            }
+        )
+
+        detail = self.service.encerrar_jornada(end_km=260.0, notes="Fim")
+
+        self.assertEqual(detail["work_day"]["id"], int(row["id"]))
+        self.assertEqual(detail["work_day"]["status"], "closed")
+        self.assertEqual(detail["work_day"]["km_remunerado"], 60.0)
+        self.assertEqual(detail["work_day"]["worked_minutes_calculated"], 630)
+        self.assertEqual(detail["events"][0]["event_type"], "check_out")
+
+    def test_edicao_recalcula_km_nao_remunerado_da_jornada_seguinte(self):
+        first = self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-15",
+                "start_time": "2026-03-15T08:00:00+00:00",
+                "end_time": "2026-03-15T18:00:00+00:00",
+                "start_time_source": "auto",
+                "end_time_source": "auto",
+                "start_km": 100.0,
+                "end_km": 180.0,
+                "status": "closed",
+                "created_at": "2026-03-15T08:00:00+00:00",
+                "updated_at": "2026-03-15T18:00:00+00:00",
+            }
+        )
+        second = self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-16",
+                "start_time": "2026-03-16T08:00:00+00:00",
+                "end_time": "2026-03-16T18:00:00+00:00",
+                "start_time_source": "auto",
+                "end_time_source": "auto",
+                "start_km": 200.0,
+                "end_km": 260.0,
+                "status": "closed",
+                "created_at": "2026-03-16T08:00:00+00:00",
+                "updated_at": "2026-03-16T18:00:00+00:00",
+            }
+        )
+        self.service._recalculate_all()
+
+        detail = self.service.editar_jornada(int(first["id"]), {"end_km": 190.0}, allow_manual_override=True, notes="Ajuste")
+
+        updated_second = self.service.detalhar_jornada(int(second["id"]))
+        self.assertEqual(detail["work_day"]["status"], "adjusted")
+        self.assertEqual(updated_second["work_day"]["km_nao_remunerado_antes"], 10.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

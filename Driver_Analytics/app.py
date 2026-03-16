@@ -34,7 +34,7 @@ if username:
 
 render_logout_button()
 
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastros", "Receitas", "Despesas", "Investimentos"])
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Jornada", "Cadastros", "Receitas", "Despesas", "Investimentos"])
 render_hero_banner(username, menu)
 
 if menu == "Cadastros":
@@ -44,6 +44,10 @@ if menu == "Dashboard":
     from UI.dashboard_ui import pagina_dashboard
 
     pagina_dashboard()
+elif menu == "Jornada":
+    from UI.jornada_ui import pagina_jornada
+
+    pagina_jornada()
 elif menu == "Cadastros":
     from UI.cadastros_ui import pagina_cadastros
 
