@@ -105,6 +105,34 @@ class _RecordingClient:
 
 
 class SecurityStrategyTests(unittest.TestCase):
+    def test_cookie_session_roundtrip_preserves_session_credentials(self):
+        encoded = auth._encode_cookie_session("sess-1", "token-1")
+
+        decoded = auth._decode_cookie_session(encoded)
+
+        self.assertEqual(decoded, ("sess-1", "token-1"))
+
+    @patch("core.auth._browser_cookie_session", return_value=("sess-cookie", "tok-cookie"))
+    def test_restore_session_from_cookie_rehydrates_state_for_mobile_reload(self, _cookie_mock):
+        state = {}
+
+        with patch("core.auth._session_state", return_value=state):
+            restored = auth._restore_session_from_cookie()
+
+        self.assertTrue(restored)
+        self.assertEqual(state["session_id"], "sess-cookie")
+        self.assertEqual(state["session_token"], "tok-cookie")
+
+    def test_auth_schema_check_rejects_non_privileged_supabase_key(self):
+        with patch("core.auth.get_supabase_key_role", return_value="anon"), patch(
+            "core.auth.is_backend_supabase_key", return_value=False
+        ):
+            ok, message = auth._check_remote_auth_schema()
+
+        self.assertFalse(ok)
+        self.assertIn("chave privilegiada", message)
+        self.assertIn("anon", message)
+
     def test_backend_only_tables_are_not_accessed_from_repositories(self):
         repository_sources = []
         for path in (PROJECT_ROOT / "repositories").glob("*.py"):
@@ -114,8 +142,10 @@ class SecurityStrategyTests(unittest.TestCase):
         self.assertNotIn('table("usuarios")', combined)
         self.assertNotIn('table("auth_sessions")', combined)
 
+    @patch("core.auth.is_backend_supabase_key", return_value=True)
+    @patch("core.auth.get_supabase_key_role", return_value="service_role")
     @patch("core.auth.get_supabase_client")
-    def test_auth_schema_check_only_touches_backend_auth_tables(self, get_client_mock):
+    def test_auth_schema_check_only_touches_backend_auth_tables(self, get_client_mock, _key_role_mock, _backend_key_mock):
         client = _RecordingClient({"usuarios": [{"id": 1}], "auth_sessions": [{"session_id": "s1"}]})
         get_client_mock.return_value = client
 

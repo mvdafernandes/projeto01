@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import secrets
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -14,11 +16,14 @@ except Exception:  # pragma: no cover - allows service imports without Streamlit
     st = None
 
 from core.config import get_settings
-from core.database import get_supabase_client
+from core.database import get_supabase_client, get_supabase_key_role, is_backend_supabase_key
 from core.security.passwords import hash_password, legacy_hash_password, needs_password_upgrade, verify_password
 
 
 _AUTH_STATE: dict[str, Any] = {}
+_AUTH_COOKIE_NAME = "driver_analytics_session"
+_AUTH_COOKIE_SYNC_KEY = "_auth_cookie_sync_value"
+_AUTH_COOKIE_APPLIED_KEY = "_auth_cookie_applied_value"
 
 
 def _utc_now() -> datetime:
@@ -57,6 +62,107 @@ def _require_streamlit() -> Any:
     return st
 
 
+def _is_secure_context() -> bool:
+    if st is None or not hasattr(st, "context"):
+        return False
+    try:
+        current_url = str(getattr(st.context, "url", "") or "").strip().lower()
+    except Exception:
+        return False
+    return current_url.startswith("https://")
+
+
+def _encode_cookie_session(session_id: str, raw_token: str) -> str:
+    payload = {"sid": str(session_id), "tok": str(raw_token)}
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def _decode_cookie_session(value: str) -> tuple[str, str] | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    padding = "=" * (-len(raw) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(f"{raw}{padding}".encode("utf-8")).decode("utf-8")
+        payload = json.loads(decoded)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    session_id = str(payload.get("sid", "")).strip()
+    raw_token = str(payload.get("tok", "")).strip()
+    if not session_id or not raw_token:
+        return None
+    return session_id, raw_token
+
+
+def _browser_cookie_session() -> tuple[str, str] | None:
+    if st is None or not hasattr(st, "context"):
+        return None
+    try:
+        raw = st.context.cookies.get(_AUTH_COOKIE_NAME, "")
+    except Exception:
+        return None
+    return _decode_cookie_session(str(raw))
+
+
+def _restore_session_from_cookie() -> bool:
+    """Rehydrate volatile Streamlit session from browser cookie on reload/mobile resume."""
+
+    state = _session_state()
+    if state.get("session_id") or state.get("session_token"):
+        return False
+    restored = _browser_cookie_session()
+    if not restored:
+        return False
+    state["session_id"], state["session_token"] = restored
+    return True
+
+
+def _queue_cookie_sync(value: str) -> None:
+    _session_state()[_AUTH_COOKIE_SYNC_KEY] = str(value)
+
+
+def _cookie_sync_script(value: str) -> str:
+    max_age = int(get_settings().session_ttl_days) * 24 * 60 * 60
+    attrs = ["path=/", "SameSite=Lax"]
+    if _is_secure_context():
+        attrs.append("Secure")
+    attr_text = "; ".join(attrs)
+    if value:
+        encoded_value = json.dumps(str(value))
+        return (
+            "<script>"
+            f"document.cookie = {_AUTH_COOKIE_NAME!r} + '=' + {encoded_value} + '; Max-Age={max_age}; {attr_text}';"
+            "</script>"
+        )
+    return (
+        "<script>"
+        f"document.cookie = {_AUTH_COOKIE_NAME!r} + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; {attr_text}';"
+        "</script>"
+    )
+
+
+def _render_cookie_sync() -> None:
+    """Persist or clear the mobile recovery cookie without exposing session in the URL."""
+
+    if st is None or not hasattr(st, "components"):
+        return
+    state = _session_state()
+    pending = state.get(_AUTH_COOKIE_SYNC_KEY)
+    if pending is None:
+        session_id = str(state.get("session_id", "")).strip()
+        session_token = str(state.get("session_token", "")).strip()
+        pending = _encode_cookie_session(session_id, session_token) if session_id and session_token else ""
+    pending = str(pending)
+    if str(state.get(_AUTH_COOKIE_APPLIED_KEY, "")) == pending:
+        return
+    st.components.v1.html(_cookie_sync_script(pending), height=0, width=0)
+    state[_AUTH_COOKIE_APPLIED_KEY] = pending
+    state.pop(_AUTH_COOKIE_SYNC_KEY, None)
+
+
 def _clear_auth_error() -> None:
     _session_state().pop(_AUTH_LAST_ERROR_KEY, None)
 
@@ -84,24 +190,39 @@ def _get_auth_error() -> str:
 
 
 def _check_remote_auth_schema() -> tuple[bool, str]:
+    key_role = get_supabase_key_role()
+    if not is_backend_supabase_key():
+        role_label = key_role or "desconhecida"
+        return (
+            False,
+            "Autenticação remota agora exige chave privilegiada do backend no Supabase. "
+            f"A chave configurada parece ter role `{role_label}`. "
+            "Configure `SUPABASE_KEY` com `service_role` ou `sb_secret_...` antes de tentar logar.",
+        )
     client = get_supabase_client()
     if not client:
         return False, "Autenticação exige Supabase remoto. Configure SUPABASE_URL/SUPABASE_KEY e APP_DB_MODE=remote."
     try:
         client.table("usuarios").select("id").limit(1).execute()
     except Exception as exc:
+        hint = ""
+        if key_role and key_role not in {"service_role", "secret"}:
+            hint = f" A role atual da chave parece ser `{key_role}` e não tem acesso backend-only."
         return (
             False,
             "Tabela remota `public.usuarios` indisponível para autenticação. "
-            f"Aplique as migrations SQL no Supabase. Detalhe: {_format_supabase_error(exc)}",
+            f"Aplique as migrations SQL no Supabase.{hint} Detalhe: {_format_supabase_error(exc)}",
         )
     try:
         client.table("auth_sessions").select("session_id").limit(1).execute()
     except Exception as exc:
+        hint = ""
+        if key_role and key_role not in {"service_role", "secret"}:
+            hint = f" A role atual da chave parece ser `{key_role}` e não tem acesso backend-only."
         return (
             False,
             "Tabela remota `public.auth_sessions` indisponível para sessões. "
-            f"Aplique as migrations SQL no Supabase. Detalhe: {_format_supabase_error(exc)}",
+            f"Aplique as migrations SQL no Supabase.{hint} Detalhe: {_format_supabase_error(exc)}",
         )
     return True, ""
 
@@ -333,6 +454,7 @@ def _maybe_rotate_session(session: dict[str, Any]) -> None:
     old_session_id = str(state.get("session_id", ""))
     state["session_id"] = new_session[0]
     state["session_token"] = new_session[1]
+    _queue_cookie_sync(_encode_cookie_session(new_session[0], new_session[1]))
     if old_session_id:
         _revoke_session(old_session_id)
 
@@ -407,7 +529,7 @@ def _find_user_for_recovery(cpf: str, data_nascimento: str, pergunta: str, respo
 
 
 def login_required() -> bool:
-    """Render login screen and stop app flow when unauthenticated."""
+    """Render login UI and rehydrate validated session from browser cookie when needed."""
 
     st_runtime = _require_streamlit()
     state = _session_state()
@@ -424,6 +546,9 @@ def login_required() -> bool:
         state["session_token"] = ""
     if "must_change_password" not in state:
         state["must_change_password"] = False
+
+    _restore_session_from_cookie()
+    _render_cookie_sync()
 
     schema_ok, schema_msg = _check_remote_auth_schema()
     if not schema_ok:
@@ -444,9 +569,13 @@ def login_required() -> bool:
             state["current_user"] = str(session.get("username", ""))
             state["current_user_id"] = int(session.get("user_id", 0))
             _maybe_rotate_session(session)
+            _queue_cookie_sync(_encode_cookie_session(str(state.get("session_id", "")), str(state.get("session_token", ""))))
+            _render_cookie_sync()
         else:
             state["session_id"] = ""
             state["session_token"] = ""
+            _queue_cookie_sync("")
+            _render_cookie_sync()
 
     if state["authenticated"]:
         if bool(state.get("must_change_password", False)):
@@ -511,6 +640,7 @@ def login_required() -> bool:
             state["session_id"] = session[0]
             state["session_token"] = session[1]
             state["must_change_password"] = bool(int(auth_user.get("must_change_password", 0) or 0))
+            _queue_cookie_sync(_encode_cookie_session(session[0], session[1]))
             if state["must_change_password"]:
                 st_runtime.warning("Troca de senha obrigatória no primeiro login.")
             st_runtime.success("Login realizado.")
@@ -641,6 +771,7 @@ def render_logout_button() -> None:
             state["session_id"] = ""
             state["session_token"] = ""
             state["must_change_password"] = False
+            _queue_cookie_sync("")
             st_runtime.rerun()
 
 
