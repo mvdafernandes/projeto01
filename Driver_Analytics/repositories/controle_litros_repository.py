@@ -30,76 +30,31 @@ class ControleLitrosRepository(BaseRepository):
                 return
             except Exception:
                 pass
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO controle_litros (user_id, data, litros)
-            VALUES (?, ?, ?)
-            """,
-            (self._current_user_id(), model.data, model.litros),
-        )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")
 
     def atualizar(self, item_id: int, data: str, litros: float) -> None:
         model = ControleLitros.from_raw({"data": data, "litros": litros})
         payload = self._with_user_id(model.to_record())
 
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
             try:
-                query = client.table(self.table_name).update(payload).eq("id", int(item_id))
-                if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
+                query = client.table(self.table_name).update(payload).eq("id", int(item_id)).eq("user_id", int(user_id))
                 query.execute()
                 return
             except Exception:
                 pass
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        if user_id is not None:
-            cursor.execute(
-                """
-                UPDATE controle_litros
-                SET data = ?, litros = ?
-                WHERE id = ? AND user_id = ?
-                """,
-                (model.data, model.litros, int(item_id), int(user_id)),
-            )
-        else:
-            cursor.execute(
-                """
-                UPDATE controle_litros
-                SET data = ?, litros = ?
-                WHERE id = ?
-                """,
-                (model.data, model.litros, int(item_id)),
-            )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Falha ao atualizar controle_litros no Supabase.")
 
     def deletar(self, item_id: int) -> None:
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
             try:
-                query = client.table(self.table_name).delete().eq("id", int(item_id))
-                if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
+                query = client.table(self.table_name).delete().eq("id", int(item_id)).eq("user_id", int(user_id))
                 query.execute()
                 return
             except Exception:
                 pass
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        if user_id is not None:
-            cursor.execute("DELETE FROM controle_litros WHERE id = ? AND user_id = ?", (int(item_id), int(user_id)))
-        else:
-            cursor.execute("DELETE FROM controle_litros WHERE id = ?", (int(item_id),))
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")

@@ -31,29 +31,12 @@ class InvestimentosRepository(BaseRepository):
 
     def buscar_por_id(self, item_id: int) -> pd.DataFrame:
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
-            if user_id is None:
-                return self._normalize(pd.DataFrame())
-            try:
-                query = client.table(self.table_name).select("*").eq("id", item_id)
-                query = query.eq("user_id", int(user_id))
-                data = query.execute().data
-                return self._normalize(pd.DataFrame(data))
-            except Exception:
-                pass
-
-        conn = self._sqlite()
-        if user_id is not None:
-            df = pd.read_sql(
-                f"SELECT * FROM {self.table_name} WHERE id = ? AND user_id = ?",
-                conn,
-                params=(item_id, int(user_id)),
-            )
-        else:
-            df = pd.read_sql(f"SELECT * FROM {self.table_name} WHERE id = ?", conn, params=(item_id,))
-        conn.close()
-        return self._normalize(df)
+            query = client.table(self.table_name).select("*").eq("id", item_id).eq("user_id", int(user_id))
+            data = query.execute().data
+            return self._normalize(pd.DataFrame(data))
+        raise RuntimeError("Supabase remoto indisponivel.")
 
     def inserir(
         self,
@@ -102,52 +85,10 @@ class InvestimentosRepository(BaseRepository):
                     if col in msg:
                         fallback_payload.pop(col, None)
                 if fallback_payload == payload:
-                    fallback_payload.pop("categoria", None)
+                        fallback_payload.pop("categoria", None)
                 client.table(self.table_name).insert(fallback_payload).execute()
             return
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                """
-                INSERT INTO investimentos (
-                    user_id, data, data_inicio, data_fim, tipo_movimentacao, categoria, aporte,
-                    "total aportado", rendimento, "patrimonio total"
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    self._current_user_id(),
-                    data,
-                    data_ini,
-                    data_end,
-                    tipo,
-                    str(categoria).strip(),
-                    float(aporte),
-                    float(total_aportado),
-                    float(rendimento),
-                    float(patrimonio_total),
-                ),
-            )
-        except Exception:
-            cursor.execute(
-                """
-                INSERT INTO investimentos (user_id, data, categoria, aporte, "total aportado", rendimento, "patrimonio total")
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    self._current_user_id(),
-                    data,
-                    str(categoria).strip(),
-                    float(aporte),
-                    float(total_aportado),
-                    float(rendimento),
-                    float(patrimonio_total),
-                ),
-            )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")
 
     def atualizar(
         self,
@@ -182,12 +123,10 @@ class InvestimentosRepository(BaseRepository):
         )
 
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
             try:
-                query = client.table(self.table_name).update(payload).eq("id", int(item_id))
-                if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
+                query = client.table(self.table_name).update(payload).eq("id", int(item_id)).eq("user_id", int(user_id))
                 query.execute()
             except Exception as exc:
                 # Backward compatibility: only fallback for missing-column schemas.
@@ -202,107 +141,19 @@ class InvestimentosRepository(BaseRepository):
                         fallback_payload.pop(col, None)
                 if fallback_payload == payload:
                     fallback_payload.pop("categoria", None)
-                query = client.table(self.table_name).update(fallback_payload).eq("id", int(item_id))
-                if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
+                query = client.table(self.table_name).update(fallback_payload).eq("id", int(item_id)).eq("user_id", int(user_id))
                 query.execute()
             return
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        try:
-            if user_id is not None:
-                cursor.execute(
-                    """
-                    UPDATE investimentos
-                    SET data = ?, data_inicio = ?, data_fim = ?, tipo_movimentacao = ?, categoria = ?,
-                        aporte = ?, "total aportado" = ?, rendimento = ?, "patrimonio total" = ?
-                    WHERE id = ? AND user_id = ?
-                    """,
-                    (
-                        data,
-                        data_ini,
-                        data_end,
-                        tipo,
-                        str(categoria).strip(),
-                        float(aporte),
-                        float(total_aportado),
-                        float(rendimento),
-                        float(patrimonio_total),
-                        int(item_id),
-                        int(user_id),
-                    ),
-                )
-            else:
-                cursor.execute(
-                """
-                UPDATE investimentos
-                SET data = ?, data_inicio = ?, data_fim = ?, tipo_movimentacao = ?, categoria = ?,
-                    aporte = ?, "total aportado" = ?, rendimento = ?, "patrimonio total" = ?
-                WHERE id = ?
-                """,
-                (
-                    data,
-                    data_ini,
-                    data_end,
-                    tipo,
-                    str(categoria).strip(),
-                    float(aporte),
-                    float(total_aportado),
-                    float(rendimento),
-                    float(patrimonio_total),
-                    int(item_id),
-                ),
-                )
-        except Exception:
-            if user_id is not None:
-                cursor.execute(
-                    """
-                    UPDATE investimentos
-                    SET data = ?, categoria = ?, aporte = ?, "total aportado" = ?, rendimento = ?, "patrimonio total" = ?
-                    WHERE id = ? AND user_id = ?
-                    """,
-                    (
-                        data,
-                        str(categoria).strip(),
-                        float(aporte),
-                        float(total_aportado),
-                        float(rendimento),
-                        float(patrimonio_total),
-                        int(item_id),
-                        int(user_id),
-                    ),
-                )
-            else:
-                cursor.execute(
-                """
-                UPDATE investimentos
-                SET data = ?, categoria = ?, aporte = ?, "total aportado" = ?, rendimento = ?, "patrimonio total" = ?
-                WHERE id = ?
-                """,
-                (data, str(categoria).strip(), float(aporte), float(total_aportado), float(rendimento), float(patrimonio_total), int(item_id)),
-                )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Falha ao atualizar investimento no Supabase.")
 
     def deletar(self, item_id: int) -> None:
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
-            query = client.table(self.table_name).delete().eq("id", int(item_id))
-            if user_id is not None:
-                query = query.eq("user_id", int(user_id))
+            query = client.table(self.table_name).delete().eq("id", int(item_id)).eq("user_id", int(user_id))
             query.execute()
             return
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        if user_id is not None:
-            cursor.execute("DELETE FROM investimentos WHERE id = ? AND user_id = ?", (int(item_id), int(user_id)))
-        else:
-            cursor.execute("DELETE FROM investimentos WHERE id = ?", (int(item_id),))
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")
 
     def recalcular_total_aportado(self) -> None:
         df = self.listar()
@@ -320,21 +171,13 @@ class InvestimentosRepository(BaseRepository):
 
         client = self._supabase()
         if client:
+            user_id = self._require_user_id()
             for _, row in work_df.iterrows():
-                client.table(self.table_name).update({"total_aportado": float(row["total aportado"])}).eq(
-                    "id", int(row["id"])
+                client.table(self.table_name).update({"total_aportado": float(row["total aportado"])}).eq("id", int(row["id"])).eq(
+                    "user_id", int(user_id)
                 ).execute()
             return
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        for _, row in work_df.iterrows():
-            cursor.execute(
-                'UPDATE investimentos SET "total aportado" = ? WHERE id = ?',
-                (float(row["total aportado"]), int(row["id"])),
-            )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")
 
     def recalcular_patrimonio_total(self) -> None:
         """Rebuild patrimonio total as cumulative sum of aporte + rendimento ordered by data/id."""
@@ -361,18 +204,10 @@ class InvestimentosRepository(BaseRepository):
 
         client = self._supabase()
         if client:
+            user_id = self._require_user_id()
             for _, row in work_df.iterrows():
-                client.table(self.table_name).update({"patrimonio_total": float(row["patrimonio total"])}).eq(
-                    "id", int(row["id"])
+                client.table(self.table_name).update({"patrimonio_total": float(row["patrimonio total"])}).eq("id", int(row["id"])).eq(
+                    "user_id", int(user_id)
                 ).execute()
             return
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        for _, row in work_df.iterrows():
-            cursor.execute(
-                'UPDATE investimentos SET "patrimonio total" = ? WHERE id = ?',
-                (float(row["patrimonio total"]), int(row["id"])),
-            )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")

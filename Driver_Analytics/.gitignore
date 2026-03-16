@@ -1,0 +1,15 @@
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# macOS
+.DS_Store
+
+# Env / local runtime
+.env
+.env.*
+.streamlit/
+*.db

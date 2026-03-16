@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from repositories.base_repository import BaseRepository, normalize_dataframe
+from repositories.categorias_despesas_repository import CategoriasDespesasRepository
 from repositories.receitas_repository import ReceitasRepository
 
 
@@ -29,6 +30,15 @@ class _FakeTable:
         self._filters.append((str(column), value))
         return self
 
+    def is_(self, column, value):
+        expected = None if str(value).lower() == "null" else value
+        self._filters.append((str(column), expected))
+        return self
+
+    def ilike(self, column, value):
+        self._filters.append((f"ilike:{column}", str(value)))
+        return self
+
     def order(self, column):
         self._order_by = str(column)
         return self
@@ -36,7 +46,11 @@ class _FakeTable:
     def execute(self):
         rows = [dict(row) for row in self._data]
         for column, value in self._filters:
-            rows = [row for row in rows if row.get(column) == value]
+            if column.startswith("ilike:"):
+                raw_column = column.split(":", 1)[1]
+                rows = [row for row in rows if str(row.get(raw_column, "")).casefold() == str(value).casefold()]
+            else:
+                rows = [row for row in rows if row.get(column) == value]
         if self._order_by:
             rows = sorted(rows, key=lambda row: row.get(self._order_by))
         return _FakeResponse(rows)
@@ -170,6 +184,40 @@ class RepositoryTests(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             repo._with_user_id({"valor": 100.0})
+
+    @patch("repositories.categorias_despesas_repository.CategoriasDespesasRepository._supabase")
+    @patch("repositories.categorias_despesas_repository.CategoriasDespesasRepository._current_user_id")
+    def test_listar_categorias_mescla_globais_e_do_usuario_sem_expor_terceiros(self, current_user_id_mock, supabase_mock):
+        current_user_id_mock.return_value = 10
+        supabase_mock.return_value = _FakeClient(
+            [
+                {"id": 1, "user_id": None, "nome": "Combustível"},
+                {"id": 2, "user_id": 10, "nome": "Pedágio"},
+                {"id": 3, "user_id": 99, "nome": "Privada Outro"},
+            ]
+        )
+
+        repo = CategoriasDespesasRepository()
+        df = repo.listar()
+
+        self.assertEqual(sorted(df["nome"].tolist()), ["Combustível", "Pedágio"])
+
+    @patch("repositories.categorias_despesas_repository.CategoriasDespesasRepository._supabase")
+    @patch("repositories.categorias_despesas_repository.CategoriasDespesasRepository._current_user_id")
+    def test_busca_categoria_prefere_personalizada_ao_invés_da_global(self, current_user_id_mock, supabase_mock):
+        current_user_id_mock.return_value = 10
+        supabase_mock.return_value = _FakeClient(
+            [
+                {"id": 1, "user_id": None, "nome": "Combustível"},
+                {"id": 2, "user_id": 10, "nome": "Combustível"},
+            ]
+        )
+
+        repo = CategoriasDespesasRepository()
+        df = repo.buscar_por_nome("Combustível")
+
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0]["nome"], "Combustível")
 
 
 if __name__ == "__main__":

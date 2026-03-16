@@ -59,10 +59,11 @@ O app assume Supabase remoto e valida o schema no bootstrap. Aplique o SQL base 
 2. `sql/migrations/20260218_0900__security_sessions_user_ownership.sql`
 3. `sql/migrations/20260305_1200__disable_rls_and_backfill_user_id.sql`
 4. `sql/migrations/20260313_0900__reenable_rls_and_harden_privileges.sql`
+5. `sql/migrations/20260316_0900__align_rls_with_custom_auth_backend.sql`
 
 Importante:
 
-- a migration de `2026-03-13` é a correção de endurecimento de segurança e deve permanecer aplicada;
+- as migrations de `2026-03-13` e `2026-03-16` compõem o endurecimento de segurança atual e devem permanecer aplicadas;
 - o app depende de tabelas como `usuarios`, `auth_sessions`, `receitas`, `despesas` e `investimentos`.
 
 ## Execução

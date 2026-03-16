@@ -14,9 +14,36 @@ class CategoriasDespesasRepository(BaseRepository):
     columns = ["id", "nome"]
     numeric_columns = ["id"]
 
+    @staticmethod
+    def _dedupe_rows(rows: list[dict]) -> list[dict]:
+        by_name: dict[str, dict] = {}
+        for row in rows:
+            nome = str(row.get("nome", "")).strip()
+            if not nome:
+                continue
+            key = nome.casefold()
+            existing = by_name.get(key)
+            # User-specific rows win over global rows with the same display name.
+            if existing is None or existing.get("user_id") is None:
+                by_name[key] = dict(row)
+        return sorted(by_name.values(), key=lambda item: str(item.get("nome", "")).casefold())
+
     def listar(self) -> pd.DataFrame:
-        data = self._list_remote_rows(order_by="nome")
-        return self._normalize(pd.DataFrame(data))
+        client = self._supabase()
+        user_id = self._current_user_id()
+        if client:
+            rows: list[dict] = []
+            try:
+                global_rows = client.table(self.table_name).select("*").is_("user_id", "null").order("nome").execute().data or []
+                rows.extend(dict(row) for row in global_rows)
+                if user_id is not None:
+                    user_rows = client.table(self.table_name).select("*").eq("user_id", int(user_id)).order("nome").execute().data or []
+                    rows.extend(dict(row) for row in user_rows)
+                return self._normalize(pd.DataFrame(self._dedupe_rows(rows)))
+            except Exception:
+                return self._normalize(pd.DataFrame())
+
+        return self._normalize(pd.DataFrame())
 
     def buscar_por_nome(self, nome: str) -> pd.DataFrame:
         normalized = str(nome).strip()
@@ -27,39 +54,18 @@ class CategoriasDespesasRepository(BaseRepository):
         user_id = self._current_user_id()
         if client:
             try:
-                query = client.table(self.table_name).select("*").ilike("nome", normalized)
+                rows: list[dict] = []
                 if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
-                data = query.execute().data
-                df = self._normalize(pd.DataFrame(data))
-                if df.empty:
-                    return df
-                return df[df["nome"].astype(str).str.casefold() == normalized.casefold()]
+                    user_rows = client.table(self.table_name).select("*").ilike("nome", normalized).eq("user_id", int(user_id)).execute().data or []
+                    rows.extend(dict(row) for row in user_rows)
+                global_rows = client.table(self.table_name).select("*").ilike("nome", normalized).is_("user_id", "null").execute().data or []
+                rows.extend(dict(row) for row in global_rows)
+                rows = [row for row in self._dedupe_rows(rows) if str(row.get("nome", "")).strip().casefold() == normalized.casefold()]
+                return self._normalize(pd.DataFrame(rows))
             except Exception:
-                try:
-                    data = client.table(self.table_name).select("*").ilike("nome", normalized).execute().data
-                    df = self._normalize(pd.DataFrame(data))
-                    if df.empty:
-                        return df
-                    return df[df["nome"].astype(str).str.casefold() == normalized.casefold()]
-                except Exception:
-                    return self._normalize(pd.DataFrame())
+                return self._normalize(pd.DataFrame())
 
-        conn = self._sqlite()
-        if user_id is not None:
-            df = pd.read_sql(
-                f"SELECT * FROM {self.table_name} WHERE lower(nome) = lower(?) AND user_id = ?",
-                conn,
-                params=(normalized, int(user_id)),
-            )
-        else:
-            df = pd.read_sql(
-                f"SELECT * FROM {self.table_name} WHERE lower(nome) = lower(?)",
-                conn,
-                params=(normalized,),
-            )
-        conn.close()
-        return self._normalize(df)
+        return self._normalize(pd.DataFrame())
 
     def inserir(self, nome: str) -> None:
         normalized = str(nome).strip()
@@ -67,29 +73,13 @@ class CategoriasDespesasRepository(BaseRepository):
             return
 
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
             try:
-                payload = {"nome": normalized}
-                if user_id is not None:
-                    payload["user_id"] = int(user_id)
+                payload = {"nome": normalized, "user_id": int(user_id)}
                 client.table(self.table_name).insert(payload).execute()
             except Exception:
                 # If migration was not executed yet, keep app running and allow free-text fallback.
                 return
             return
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        if user_id is not None:
-            cursor.execute(
-                f"INSERT OR IGNORE INTO {self.table_name} (user_id, nome) VALUES (?, ?)",
-                (int(user_id), normalized),
-            )
-        else:
-            cursor.execute(
-                f"INSERT OR IGNORE INTO {self.table_name} (nome) VALUES (?)",
-                (normalized,),
-            )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")

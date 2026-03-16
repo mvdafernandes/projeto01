@@ -30,76 +30,31 @@ class ControleKMRepository(BaseRepository):
                 return
             except Exception:
                 pass
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO controle_km (user_id, data_inicio, data_fim, km_total_rodado)
-            VALUES (?, ?, ?, ?)
-            """,
-            (self._current_user_id(), model.data_inicio, model.data_fim, model.km_total_rodado),
-        )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")
 
     def atualizar(self, item_id: int, data_inicio: str, data_fim: str, km_total_rodado: float) -> None:
         model = ControleKM.from_raw({"data_inicio": data_inicio, "data_fim": data_fim, "km_total_rodado": km_total_rodado})
         payload = self._with_user_id(model.to_record())
 
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
             try:
-                query = client.table(self.table_name).update(payload).eq("id", int(item_id))
-                if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
+                query = client.table(self.table_name).update(payload).eq("id", int(item_id)).eq("user_id", int(user_id))
                 query.execute()
                 return
             except Exception:
                 pass
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        if user_id is not None:
-            cursor.execute(
-                """
-                UPDATE controle_km
-                SET data_inicio = ?, data_fim = ?, km_total_rodado = ?
-                WHERE id = ? AND user_id = ?
-                """,
-                (model.data_inicio, model.data_fim, model.km_total_rodado, int(item_id), int(user_id)),
-            )
-        else:
-            cursor.execute(
-                """
-                UPDATE controle_km
-                SET data_inicio = ?, data_fim = ?, km_total_rodado = ?
-                WHERE id = ?
-                """,
-                (model.data_inicio, model.data_fim, model.km_total_rodado, int(item_id)),
-            )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Falha ao atualizar controle_km no Supabase.")
 
     def deletar(self, item_id: int) -> None:
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
             try:
-                query = client.table(self.table_name).delete().eq("id", int(item_id))
-                if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
+                query = client.table(self.table_name).delete().eq("id", int(item_id)).eq("user_id", int(user_id))
                 query.execute()
                 return
             except Exception:
                 pass
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        if user_id is not None:
-            cursor.execute("DELETE FROM controle_km WHERE id = ? AND user_id = ?", (int(item_id), int(user_id)))
-        else:
-            cursor.execute("DELETE FROM controle_km WHERE id = ?", (int(item_id),))
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")

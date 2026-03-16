@@ -33,7 +33,7 @@ Regra atual:
 
 ### Banco
 
-A migration [20260313_0900__reenable_rls_and_harden_privileges.sql](/Users/marcus/Documents/GitHub/Projeto01/Driver_Analytics/sql/migrations/20260313_0900__reenable_rls_and_harden_privileges.sql) reabilita RLS e restringe tabelas sensíveis.
+As migrations de endurecimento mais recentes mantêm RLS habilitado, mas bloqueiam acesso direto de `anon` e `authenticated` às tabelas privadas porque a autenticação do projeto é própria e não prova integração com Supabase Auth do usuário final. O backend Python opera via `service_role`, e o isolamento funcional continua sendo reforçado também na camada de repositório.
 
 Tabelas cobertas:
 
@@ -52,7 +52,8 @@ Tabelas cobertas:
 - não usar fallback que exponha dados de outros usuários;
 - manter RLS habilitado nas tabelas multiusuário;
 - restringir permissões de `anon` e `authenticated`;
-- deixar `service_role` apenas para o backend quando necessário.
+- usar `service_role` apenas no backend;
+- não depender de `auth.uid()` ou JWT claims do Supabase quando a autenticação do app for própria.
 
 ## Testes Relacionados
 

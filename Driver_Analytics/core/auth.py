@@ -431,7 +431,9 @@ def login_required() -> bool:
         st_runtime.caption(
             "Execute as migrations em `sql/supabase_migration_2026_02_14.sql` e "
             "`sql/migrations/20260218_0900__security_sessions_user_ownership.sql` e "
-            "`sql/migrations/20260313_0900__reenable_rls_and_harden_privileges.sql`."
+            "`sql/migrations/20260316_1000__harden_auth_tables_backend_only.sql` e "
+            "`sql/migrations/20260313_0900__reenable_rls_and_harden_privileges.sql` e "
+            "`sql/migrations/20260316_0900__align_rls_with_custom_auth_backend.sql`."
         )
         st_runtime.stop()
 

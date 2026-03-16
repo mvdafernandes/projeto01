@@ -49,29 +49,12 @@ class DespesasRepository(BaseRepository):
         """Get despesa by id as standardized dataframe."""
 
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
-            if user_id is None:
-                return self._normalize(pd.DataFrame())
-            try:
-                query = client.table(self.table_name).select("*").eq("id", item_id)
-                query = query.eq("user_id", int(user_id))
-                data = query.execute().data
-                return self._normalize(pd.DataFrame(data))
-            except Exception:
-                pass
-
-        conn = self._sqlite()
-        if user_id is not None:
-            df = pd.read_sql(
-                f"SELECT * FROM {self.table_name} WHERE id = ? AND user_id = ?",
-                conn,
-                params=(item_id, int(user_id)),
-            )
-        else:
-            df = pd.read_sql(f"SELECT * FROM {self.table_name} WHERE id = ?", conn, params=(item_id,))
-        conn.close()
-        return self._normalize(df)
+            query = client.table(self.table_name).select("*").eq("id", item_id).eq("user_id", int(user_id))
+            data = query.execute().data
+            return self._normalize(pd.DataFrame(data))
+        raise RuntimeError("Supabase remoto indisponivel.")
 
     def inserir(
         self,
@@ -118,44 +101,7 @@ class DespesasRepository(BaseRepository):
                     pass
             else:
                 return
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO despesas (
-                user_id,
-                data,
-                categoria,
-                valor,
-                observacao,
-                tipo_despesa,
-                subcategoria_fixa,
-                esfera_despesa,
-                litros,
-                recorrencia_tipo,
-                recorrencia_meses,
-                recorrencia_serie_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                self._current_user_id(),
-                model.data,
-                model.categoria,
-                model.valor,
-                model.observacao,
-                model.tipo_despesa,
-                model.subcategoria_fixa,
-                model.esfera_despesa,
-                model.litros,
-                model.recorrencia_tipo,
-                model.recorrencia_meses,
-                model.recorrencia_serie_id,
-            ),
-        )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Supabase remoto indisponivel.")
 
     def atualizar(
         self,
@@ -192,93 +138,29 @@ class DespesasRepository(BaseRepository):
         payload = self._with_user_id(model.to_record())
 
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
             try:
-                query = client.table(self.table_name).update(payload).eq("id", int(item_id))
-                if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
+                query = client.table(self.table_name).update(payload).eq("id", int(item_id)).eq("user_id", int(user_id))
                 query.execute()
             except Exception:
                 try:
-                    query = client.table(self.table_name).update(self._legacy_payload(payload)).eq("id", int(item_id))
-                    if user_id is not None:
-                        query = query.eq("user_id", int(user_id))
+                    query = client.table(self.table_name).update(self._legacy_payload(payload)).eq("id", int(item_id)).eq(
+                        "user_id", int(user_id)
+                    )
                     query.execute()
                     return
                 except Exception:
                     pass
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        if user_id is not None:
-            cursor.execute(
-                """
-                UPDATE despesas
-                SET data = ?, categoria = ?, valor = ?, observacao = ?, tipo_despesa = ?, subcategoria_fixa = ?, esfera_despesa = ?, litros = ?, recorrencia_tipo = ?, recorrencia_meses = ?, recorrencia_serie_id = ?
-                WHERE id = ? AND user_id = ?
-                """,
-                (
-                    model.data,
-                    model.categoria,
-                    model.valor,
-                    model.observacao,
-                    model.tipo_despesa,
-                    model.subcategoria_fixa,
-                    model.esfera_despesa,
-                    model.litros,
-                    model.recorrencia_tipo,
-                    model.recorrencia_meses,
-                    model.recorrencia_serie_id,
-                    int(item_id),
-                    int(user_id),
-                ),
-            )
-        else:
-            cursor.execute(
-                """
-                UPDATE despesas
-                SET data = ?, categoria = ?, valor = ?, observacao = ?, tipo_despesa = ?, subcategoria_fixa = ?, esfera_despesa = ?, litros = ?, recorrencia_tipo = ?, recorrencia_meses = ?, recorrencia_serie_id = ?
-                WHERE id = ?
-                """,
-                (
-                    model.data,
-                    model.categoria,
-                    model.valor,
-                    model.observacao,
-                    model.tipo_despesa,
-                    model.subcategoria_fixa,
-                    model.esfera_despesa,
-                    model.litros,
-                    model.recorrencia_tipo,
-                    model.recorrencia_meses,
-                    model.recorrencia_serie_id,
-                    int(item_id),
-                ),
-            )
-        conn.commit()
-        conn.close()
+        raise RuntimeError("Falha ao atualizar despesa no Supabase.")
 
     def deletar(self, item_id: int) -> None:
         """Delete despesa by id."""
 
         client = self._supabase()
-        user_id = self._current_user_id()
+        user_id = self._require_user_id()
         if client:
-            try:
-                query = client.table(self.table_name).delete().eq("id", int(item_id))
-                if user_id is not None:
-                    query = query.eq("user_id", int(user_id))
-                query.execute()
-                return
-            except Exception:
-                pass
-
-        conn = self._sqlite()
-        cursor = conn.cursor()
-        if user_id is not None:
-            cursor.execute("DELETE FROM despesas WHERE id = ? AND user_id = ?", (int(item_id), int(user_id)))
-        else:
-            cursor.execute("DELETE FROM despesas WHERE id = ?", (int(item_id),))
-        conn.commit()
-        conn.close()
+            query = client.table(self.table_name).delete().eq("id", int(item_id)).eq("user_id", int(user_id))
+            query.execute()
+            return
+        raise RuntimeError("Supabase remoto indisponivel.")

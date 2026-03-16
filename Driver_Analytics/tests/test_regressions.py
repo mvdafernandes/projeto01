@@ -56,6 +56,16 @@ class RegressionTests(unittest.TestCase):
         self.assertIn("pagina_investimentos", function_names)
         self.assertIn("_render_projection", function_names)
 
+    def test_latest_rls_migration_does_not_depend_on_supabase_auth_claims(self):
+        migration_path = PROJECT_ROOT / "sql" / "migrations" / "20260316_0900__align_rls_with_custom_auth_backend.sql"
+        source = migration_path.read_text(encoding="utf-8")
+
+        self.assertNotIn("auth.uid()", source)
+        self.assertNotIn("request.jwt.claims", source)
+        self.assertIn("drop function if exists public.app_current_user_id()", source)
+        self.assertNotIn("public.app_current_user_id(", source.replace("drop function if exists public.app_current_user_id()", ""))
+        self.assertIn("grant usage on schema public to service_role", source)
+
 
 if __name__ == "__main__":
     unittest.main()

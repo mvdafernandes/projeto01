@@ -6,6 +6,10 @@
 - Security: tightened Supabase auth/session guidance in the app bootstrap to include the new RLS hardening migration.
 - Docs: added `README.md` plus documentation for architecture, operations and security under `docs/`.
 
+## 2026-03-16
+
+- Security: added `sql/migrations/20260316_0900__align_rls_with_custom_auth_backend.sql` to remove claim-based RLS assumptions and lock private tables to backend `service_role` access only, consistent with the project's custom authentication model.
+
 ## 2026-02-18
 
 - Security: removed session token from querystring persistence and kept authentication restricted to in-memory Streamlit session state plus server-side sessions with token hash, TTL, rotation and revocation.
