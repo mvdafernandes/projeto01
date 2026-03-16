@@ -494,3 +494,9 @@ def pagina_backup() -> None:
 
     st.header("Backup")
     render_backup_section()
+
+
+def pagina_cadastros() -> None:
+    """Backward-compatible alias for older app imports."""
+
+    pagina_backup()

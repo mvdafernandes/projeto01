@@ -22,6 +22,11 @@ from UI.components import (
 service = DashboardService()
 
 
+def _set_dashboard_full_history(start_date, end_date) -> None:
+    st.session_state["dash_start"] = start_date
+    st.session_state["dash_end"] = end_date
+
+
 def _resolve_data_column(df: pd.DataFrame) -> str | None:
     for col in df.columns:
         if isinstance(col, str) and col.strip().lower() == "data":
@@ -138,14 +143,19 @@ def pagina_dashboard() -> None:
         min_available = today.replace(day=1)
         max_available = today
 
+    st.session_state.setdefault("dash_start", min_available.date())
+    st.session_state.setdefault("dash_end", max_available.date())
+
     with st.sidebar:
         st.subheader("Filtros")
         start_date = st.date_input("Data inicial", value=min_available.date(), key="dash_start")
         end_date = st.date_input("Data final", value=max_available.date(), key="dash_end")
-        if st.button("Usar todo histórico", key="dash_use_full_history"):
-            st.session_state["dash_start"] = min_available.date()
-            st.session_state["dash_end"] = max_available.date()
-            st.rerun()
+        st.button(
+            "Usar todo histórico",
+            key="dash_use_full_history",
+            on_click=_set_dashboard_full_history,
+            args=(min_available.date(), max_available.date()),
+        )
         show_chart = st.checkbox("Exibir gráfico", value=True, key="dash_show_chart")
 
     start_ts = _safe_to_timestamp(start_date)
