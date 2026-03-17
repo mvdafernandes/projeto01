@@ -48,3 +48,9 @@ class WorkDayEventsRepository(BaseRepository):
             raise RuntimeError("Supabase remoto indisponivel.")
         data = client.table(self.table_name).insert(payload).execute().data or []
         return dict(data[0]) if data else {}
+
+    def deletar_por_work_day(self, work_day_id: int) -> None:
+        client = self._supabase()
+        if not client:
+            raise RuntimeError("Supabase remoto indisponivel.")
+        client.table(self.table_name).delete().eq("work_day_id", int(work_day_id)).execute()

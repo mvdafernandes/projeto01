@@ -25,6 +25,7 @@ def pagina_receitas() -> None:
     st.header("Receitas")
 
     df = service.listar_receitas()
+    daily_goal = float(service.obter_daily_goal())
     if "data" in df.columns:
         df["data"] = pd.to_datetime(df["data"], errors="coerce")
     if "tempo trabalhado" in df.columns:
@@ -83,7 +84,19 @@ def pagina_receitas() -> None:
     total = service.metrics.receita_total(df_filtrado)
     media = service.metrics.receita_media_diaria(df_filtrado)
     dias = service.metrics.dias_trabalhados(df_filtrado)
-    meta_pct = service.metrics.percentual_meta_batida(df_filtrado)
+    meta_pct = service.metrics.percentual_meta_batida(df_filtrado, meta=daily_goal)
+
+    titulo_secao("Meta Diária")
+    with st.form("receitas_daily_goal_form"):
+        goal_input = st.number_input("Meta diária de remuneração", min_value=0.0, value=float(daily_goal), step=10.0, key="receitas_daily_goal")
+        save_goal = st.form_submit_button("Salvar meta")
+        if save_goal:
+            try:
+                service.atualizar_daily_goal(float(goal_input))
+                st.success("Meta diária atualizada.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
 
     row1 = st.columns(2)
     with row1[0]:
@@ -95,7 +108,7 @@ def pagina_receitas() -> None:
     with row2[0]:
         render_kpi("Dias trabalhados", dias)
     with row2[1]:
-        render_kpi("% Meta 300", format_percent(meta_pct))
+        render_kpi("% Meta", format_percent(meta_pct), f"Meta diária: {format_currency(daily_goal)}")
 
     titulo_secao("Evolução Diária")
     if not df_filtrado.empty and {"data", "valor"}.issubset(df_filtrado.columns):
@@ -152,10 +165,9 @@ def pagina_receitas() -> None:
         df_tabela["data"] = pd.to_datetime(df_tabela["data"], errors="coerce").dt.date
     if "valor" in df_tabela.columns:
         df_tabela["valor"] = pd.to_numeric(df_tabela["valor"], errors="coerce").fillna(0.0).apply(formatar_moeda)
-    if "km" in df_tabela.columns:
-        df_tabela["km"] = pd.to_numeric(df_tabela["km"], errors="coerce").fillna(0.0).map(lambda v: f"{float(v):.2f}")
-    if "tempo trabalhado" in df_tabela.columns:
-        df_tabela["tempo trabalhado"] = df_tabela["tempo trabalhado"].apply(_format_hms)
+    for drop_col in ["km", "km_rodado_total", "tempo trabalhado"]:
+        if drop_col in df_tabela.columns:
+            df_tabela = df_tabela.drop(columns=[drop_col])
     st.dataframe(df_tabela, width="stretch")
 
     titulo_secao("Remuneração (CPF)")

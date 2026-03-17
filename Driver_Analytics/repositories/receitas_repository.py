@@ -41,8 +41,8 @@ class ReceitasRepository(BaseRepository):
         self,
         data: str,
         valor: float,
-        km: float,
-        tempo_trabalhado: int,
+        km: float = 0.0,
+        tempo_trabalhado: int = 0,
         observacao: str = "",
         km_rodado_total: float = 0.0,
     ) -> None:
@@ -79,9 +79,9 @@ class ReceitasRepository(BaseRepository):
         item_id: int,
         data: str,
         valor: float,
-        km: float,
-        tempo_trabalhado: int,
-        observacao: str,
+        km: float = 0.0,
+        tempo_trabalhado: int = 0,
+        observacao: str = "",
         km_rodado_total: float = 0.0,
     ) -> None:
         """Update receita."""

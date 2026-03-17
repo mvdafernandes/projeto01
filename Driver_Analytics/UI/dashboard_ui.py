@@ -197,21 +197,22 @@ def pagina_dashboard() -> None:
         df_investimentos = pd.DataFrame()
 
     receita_total = service.metrics.receita_total(df_receitas_f)
+    daily_goal = float(service.obter_daily_goal())
     despesa_total = service.metrics.despesa_total(df_despesas_f)
     despesa_negocio = service.metrics.despesa_total(df_despesas_negocio)
     despesa_pessoal = service.metrics.despesa_total(df_despesas_pessoal)
     lucro_total = service.metrics.lucro_bruto(df_receitas_f, df_despesas_negocio)
     margem_lucro = service.metrics.margem_lucro(df_receitas_f, df_despesas_negocio)
     dias = service.metrics.dias_trabalhados(df_receitas_f)
-    meta_pct = service.metrics.percentual_meta_batida(df_receitas_f)
-    receita_km = service.metrics.receita_por_km(df_receitas_f)
-    lucro_km = service.metrics.lucro_por_km(df_receitas_f, df_despesas_negocio)
-    consistencia = service.metrics.analise_consistencia(df_receitas_f, start_date=start_ts, end_date=end_base, meta=300.0)
+    meta_pct = service.metrics.percentual_meta_batida(df_receitas_f, meta=daily_goal)
+    consistencia = service.metrics.analise_consistencia(df_receitas_f, start_date=start_ts, end_date=end_base, meta=daily_goal)
 
-    km_remunerado = service.metrics.km_total(df_receitas_f)
-    km_total_rodado = service.metrics.km_rodado_total_controle(df_controle_km_f)
-    km_total_rodado = max(float(km_total_rodado), 0.0)
-    km_nao_remunerado = float(max(km_total_rodado - km_remunerado, 0.0))
+    km_snapshot = service.km_snapshot(start_ts, end_base)
+    km_remunerado = float(km_snapshot["km_remunerado"])
+    km_total_rodado = float(km_snapshot["km_total"])
+    km_nao_remunerado = float(km_snapshot["km_nao_remunerado"])
+    receita_km = float(receita_total / km_remunerado) if km_remunerado > 0 else 0.0
+    lucro_km = float(lucro_total / km_remunerado) if km_remunerado > 0 else 0.0
     km_remunerado_pct = float((km_remunerado / km_total_rodado) * 100.0) if km_total_rodado > 0 else 0.0
     km_nao_remunerado_pct = float(100.0 - km_remunerado_pct) if km_total_rodado > 0 else 0.0
     litros_combustivel = 0.0
@@ -239,7 +240,7 @@ def pagina_dashboard() -> None:
                 ("Lucro", format_currency(lucro_total), None),
                 ("Margem", format_percent(margem_lucro), "Lucro sobre receita do negócio"),
                 ("Dias trabalhados", int(dias), None),
-                ("% Meta batida", format_percent(meta_pct), None),
+                ("% Meta batida", format_percent(meta_pct), f"Meta diária: {format_currency(daily_goal)}"),
                 ("Receita/KM", format_currency(receita_km), None),
                 ("Lucro/KM", format_currency(lucro_km), None),
             ]
@@ -247,7 +248,8 @@ def pagina_dashboard() -> None:
 
         titulo_secao("Eficiência Energética")
         st.caption(
-            "KM remunerado: quilometragem com receita. KM total rodado: valor informado no cadastro Controle. "
+            "KM remunerado vem prioritariamente da Jornada. KM total rodado vem do Controle histórico por período "
+            "e, quando não existir, do cálculo derivado da Jornada com hodômetro; controles legados entram só como fallback. "
             "Consumo médio = KM total rodado / litros abastecidos (Controle de Litros; fallback: despesas de combustível)."
         )
         _render_kpi_grid(

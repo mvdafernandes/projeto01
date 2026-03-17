@@ -16,14 +16,29 @@ from repositories.controle_litros_repository import ControleLitrosRepository
 from repositories.despesas_repository import DespesasRepository
 from repositories.investimentos_repository import InvestimentosRepository
 from repositories.receitas_repository import ReceitasRepository
+from repositories.usuarios_repository import UsuariosRepository
+from repositories.work_day_events_repository import WorkDayEventsRepository
+from repositories.work_days_repository import WorkDaysRepository
+from repositories.work_km_periods_repository import WorkKmPeriodsRepository
 
 
 class BackupService:
     """Create and restore structured backups for the current logged user."""
 
     BACKUP_FORMAT = "driver_analytics_backup"
-    BACKUP_VERSION = 1
-    BACKUP_TABLES = ["receitas", "despesas", "investimentos", "controle_km", "controle_litros", "categorias_despesas"]
+    BACKUP_VERSION = 2
+    BACKUP_TABLES = [
+        "settings",
+        "receitas",
+        "despesas",
+        "investimentos",
+        "controle_km",
+        "controle_litros",
+        "categorias_despesas",
+        "work_days",
+        "work_day_events",
+        "work_km_periods",
+    ]
 
     def __init__(self) -> None:
         self.receitas_repo = ReceitasRepository()
@@ -32,6 +47,10 @@ class BackupService:
         self.controle_km_repo = ControleKMRepository()
         self.controle_litros_repo = ControleLitrosRepository()
         self.categorias_repo = CategoriasDespesasRepository()
+        self.usuarios_repo = UsuariosRepository()
+        self.work_days_repo = WorkDaysRepository()
+        self.work_day_events_repo = WorkDayEventsRepository()
+        self.work_km_periods_repo = WorkKmPeriodsRepository()
 
     @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -86,13 +105,23 @@ class BackupService:
 
     def export_payload(self) -> dict[str, Any]:
         self._current_user_id()
+        work_days = self._df_to_records(self.work_days_repo.listar())
+        work_day_events: list[dict[str, Any]] = []
+        for row in work_days:
+            work_day_id = int(self._safe_float(row.get("id"), 0.0))
+            if work_day_id > 0:
+                work_day_events.extend(self._df_to_records(self.work_day_events_repo.listar_por_work_day(work_day_id)))
         data = {
+            "settings": [{"daily_goal": float(self.usuarios_repo.obter_daily_goal())}],
             "receitas": self._df_to_records(self.receitas_repo.listar()),
             "despesas": self._df_to_records(self.despesas_repo.listar()),
             "investimentos": self._df_to_records(self.investimentos_repo.listar()),
             "controle_km": self._df_to_records(self.controle_km_repo.listar()),
             "controle_litros": self._df_to_records(self.controle_litros_repo.listar()),
             "categorias_despesas": self._df_to_records(self.categorias_repo.listar()),
+            "work_days": work_days,
+            "work_day_events": work_day_events,
+            "work_km_periods": self._df_to_records(self.work_km_periods_repo.listar()),
         }
         counts = {key: len(value) for key, value in data.items()}
         return {
@@ -226,9 +255,19 @@ class BackupService:
         deleted = 0
 
         client = self.receitas_repo._supabase()
-        tables = self.BACKUP_TABLES
+        tables = [table for table in self.BACKUP_TABLES if table not in {"settings", "work_day_events"}]
         if not client:
             raise RuntimeError("Supabase remoto indisponível para limpeza antes da importação.")
+        try:
+            work_day_ids = (
+                client.table("work_days").select("id").eq("user_id", int(user_id)).execute().data
+                or []
+            )
+            ids = [int(row.get("id", 0)) for row in work_day_ids if int(row.get("id", 0) or 0) > 0]
+            if ids:
+                client.table("work_day_events").delete().in_("work_day_id", ids).execute()
+        except Exception:
+            pass
         for table in tables:
             try:
                 client.table(table).delete().eq("user_id", int(user_id)).execute()
@@ -251,6 +290,9 @@ class BackupService:
             nome = self._safe_str(row.get("nome"), "").strip()
             if nome:
                 self.categorias_repo.inserir(nome)
+
+        for row in data.get("settings", []):
+            self.usuarios_repo.atualizar_daily_goal(self._safe_float(row.get("daily_goal"), 300.0))
 
         for row in data["receitas"]:
             self.receitas_repo.inserir(
@@ -275,6 +317,59 @@ class BackupService:
                 recorrencia_tipo=self._safe_str(row.get("recorrencia_tipo"), ""),
                 recorrencia_meses=int(self._safe_float(row.get("recorrencia_meses"), 0.0)),
                 recorrencia_serie_id=self._safe_str(row.get("recorrencia_serie_id"), ""),
+            )
+
+        work_day_id_map: dict[int, int] = {}
+        for row in data.get("work_days", []):
+            created = self.work_days_repo.inserir(
+                {
+                    "work_date": self._safe_date_str(row.get("work_date"), default=""),
+                    "start_time": self._safe_str(row.get("start_time"), "") or None,
+                    "end_time": self._safe_str(row.get("end_time"), "") or None,
+                    "start_time_source": self._safe_str(row.get("start_time_source"), "auto") or "auto",
+                    "end_time_source": self._safe_str(row.get("end_time_source"), "auto") or "auto",
+                    "start_km": self._safe_float(row.get("start_km"), 0.0) if str(row.get("start_km", "")).strip() else None,
+                    "end_km": self._safe_float(row.get("end_km"), 0.0) if str(row.get("end_km", "")).strip() else None,
+                    "km_remunerado": self._safe_float(row.get("km_remunerado"), 0.0) if str(row.get("km_remunerado", "")).strip() else None,
+                    "km_nao_remunerado_antes": self._safe_float(row.get("km_nao_remunerado_antes"), 0.0) if str(row.get("km_nao_remunerado_antes", "")).strip() else None,
+                    "worked_minutes_calculated": int(self._safe_float(row.get("worked_minutes_calculated"), 0.0)) if str(row.get("worked_minutes_calculated", "")).strip() else None,
+                    "worked_minutes_manual": int(self._safe_float(row.get("worked_minutes_manual"), 0.0)) if str(row.get("worked_minutes_manual", "")).strip() else None,
+                    "worked_minutes_final": int(self._safe_float(row.get("worked_minutes_final"), 0.0)) if str(row.get("worked_minutes_final", "")).strip() else None,
+                    "status": self._safe_str(row.get("status"), "partial") or "partial",
+                    "is_manually_adjusted": str(row.get("is_manually_adjusted", "")).strip().lower() in {"1", "true", "t", "yes"},
+                    "notes": self._safe_str(row.get("notes"), ""),
+                }
+            )
+            old_id = int(self._safe_float(row.get("id"), 0.0))
+            new_id = int(created.get("id", 0) or 0)
+            if old_id > 0 and new_id > 0:
+                work_day_id_map[old_id] = new_id
+
+        for row in data.get("work_day_events", []):
+            old_work_day_id = int(self._safe_float(row.get("work_day_id"), 0.0))
+            mapped_work_day_id = int(work_day_id_map.get(old_work_day_id, 0))
+            if mapped_work_day_id <= 0:
+                continue
+            self.work_day_events_repo.inserir(
+                {
+                    "work_day_id": mapped_work_day_id,
+                    "event_type": self._safe_str(row.get("event_type"), ""),
+                    "event_timestamp": self._safe_str(row.get("event_timestamp"), ""),
+                    "km_value": self._safe_float(row.get("km_value"), 0.0) if str(row.get("km_value", "")).strip() else None,
+                    "old_value": row.get("old_value") if isinstance(row.get("old_value"), dict) else None,
+                    "new_value": row.get("new_value") if isinstance(row.get("new_value"), dict) else None,
+                    "notes": self._safe_str(row.get("notes"), ""),
+                }
+            )
+
+        for row in data.get("work_km_periods", []):
+            self.work_km_periods_repo.inserir(
+                {
+                    "start_date": self._safe_date_str(row.get("start_date"), default=""),
+                    "end_date": self._safe_date_str(row.get("end_date"), default=""),
+                    "km_total_periodo": self._safe_float(row.get("km_total_periodo"), 0.0),
+                    "notes": self._safe_str(row.get("notes"), ""),
+                }
             )
 
         for row in data["investimentos"]:

@@ -11,7 +11,9 @@ import pandas as pd
 from domain.models import WorkDay, WorkDayEvent
 from repositories.receitas_repository import ReceitasRepository
 from repositories.work_day_events_repository import WorkDayEventsRepository
+from repositories.work_km_periods_repository import WorkKmPeriodsRepository
 from repositories.work_days_repository import WorkDaysRepository
+from domain.models import WorkKmPeriod
 
 
 class WorkDayService:
@@ -23,6 +25,7 @@ class WorkDayService:
         self.work_days_repo = WorkDaysRepository()
         self.events_repo = WorkDayEventsRepository()
         self.receitas_repo = ReceitasRepository()
+        self.work_km_periods_repo = WorkKmPeriodsRepository()
 
     @staticmethod
     def _app_tz() -> ZoneInfo:
@@ -247,12 +250,111 @@ class WorkDayService:
         rows.sort(key=lambda row: (row["work_date"], row.get("start_time") or "", row["id"]), reverse=True)
         return rows
 
+    def listar_km_periodos(self) -> list[dict[str, Any]]:
+        rows = self.work_km_periods_repo.listar_raw()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            start_date = self._to_date_str(row.get("start_date"))
+            end_date = self._to_date_str(row.get("end_date"))
+            km_total = self._to_float_or_none(row.get("km_total_periodo")) or 0.0
+            km_remunerado = self._km_remunerado_no_periodo(start_date, end_date)
+            out.append(
+                {
+                    "id": int(row.get("id", 0)),
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "km_total_periodo": km_total,
+                    "km_remunerado_periodo": km_remunerado,
+                    "km_nao_remunerado_periodo": float(max(km_total - km_remunerado, 0.0)),
+                    "notes": self._clean_text(row.get("notes", "")),
+                    "created_at": self._to_iso_timestamp(row.get("created_at")),
+                    "updated_at": self._to_iso_timestamp(row.get("updated_at")),
+                }
+            )
+        out.sort(key=lambda row: (row["start_date"], row["end_date"], row["id"]), reverse=True)
+        return out
+
+    def _km_remunerado_no_periodo(self, start_date: str, end_date: str) -> float:
+        jornadas = self.listar_jornadas()
+        total = 0.0
+        for row in jornadas:
+            work_date = str(row.get("work_date") or "")
+            if not work_date or work_date < str(start_date) or work_date > str(end_date):
+                continue
+            total += float(self._to_float_or_none(row.get("km_remunerado")) or 0.0)
+        return float(total)
+
+    def _validate_km_period_overlap(self, start_date: str, end_date: str, current_id: int | None = None) -> None:
+        existing = self.listar_km_periodos()
+        start_ts = pd.to_datetime(start_date, errors="coerce")
+        end_ts = pd.to_datetime(end_date, errors="coerce")
+        if pd.isna(start_ts) or pd.isna(end_ts):
+            raise ValueError("Período inválido.")
+        for row in existing:
+            if current_id is not None and int(row["id"]) == int(current_id):
+                continue
+            row_start = pd.to_datetime(row["start_date"], errors="coerce")
+            row_end = pd.to_datetime(row["end_date"], errors="coerce")
+            if pd.isna(row_start) or pd.isna(row_end):
+                continue
+            if max(start_ts, row_start) <= min(end_ts, row_end):
+                raise ValueError("Já existe um período de KM total sobreposto para esse intervalo.")
+
+    def criar_km_periodo(self, start_date: str, end_date: str, km_total_periodo: float, notes: str = "") -> dict[str, Any]:
+        payload = WorkKmPeriod.from_raw(
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "km_total_periodo": km_total_periodo,
+                "notes": notes,
+            }
+        ).to_record()
+        if not payload["start_date"] or not payload["end_date"]:
+            raise ValueError("Informe um período válido.")
+        if payload["end_date"] < payload["start_date"]:
+            raise ValueError("A data final não pode ser menor que a inicial.")
+        if float(payload["km_total_periodo"]) < 0:
+            raise ValueError("O KM total do período não pode ser negativo.")
+        self._validate_km_period_overlap(payload["start_date"], payload["end_date"])
+        created = self.work_km_periods_repo.inserir(payload)
+        return next((row for row in self.listar_km_periodos() if int(row["id"]) == int(created.get("id", 0))), {})
+
+    def atualizar_km_periodo(self, item_id: int, start_date: str, end_date: str, km_total_periodo: float, notes: str = "") -> dict[str, Any]:
+        payload = WorkKmPeriod.from_raw(
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "km_total_periodo": km_total_periodo,
+                "notes": notes,
+            }
+        ).to_record()
+        if not payload["start_date"] or not payload["end_date"]:
+            raise ValueError("Informe um período válido.")
+        if payload["end_date"] < payload["start_date"]:
+            raise ValueError("A data final não pode ser menor que a inicial.")
+        if float(payload["km_total_periodo"]) < 0:
+            raise ValueError("O KM total do período não pode ser negativo.")
+        self._validate_km_period_overlap(payload["start_date"], payload["end_date"], current_id=int(item_id))
+        self.work_km_periods_repo.atualizar(int(item_id), payload)
+        return next((row for row in self.listar_km_periodos() if int(row["id"]) == int(item_id)), {})
+
+    def deletar_km_periodo(self, item_id: int) -> None:
+        self.work_km_periods_repo.deletar(int(item_id))
+
     def detalhar_jornada(self, work_day_id: int) -> dict:
         row = self._serialize_day(self.work_days_repo.buscar_por_id(int(work_day_id)))
         if not row:
             raise ValueError("Jornada não encontrada.")
         events = self._serialize_events(self.events_repo.listar_por_work_day(int(work_day_id)))
         return {"work_day": row, "events": events}
+
+    def deletar_jornada(self, work_day_id: int) -> None:
+        existing = self._serialize_day(self.work_days_repo.buscar_por_id(int(work_day_id)))
+        if not existing:
+            raise ValueError("Jornada não encontrada.")
+        self.events_repo.deletar_por_work_day(int(work_day_id))
+        self.work_days_repo.deletar(int(work_day_id))
+        self._recalculate_all()
 
     def migrar_receitas_legadas(
         self,

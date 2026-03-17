@@ -14,8 +14,8 @@ class Receita:
 
     data: str
     valor: float
-    km: float
-    tempo_trabalhado: int
+    km: float = 0.0
+    tempo_trabalhado: int = 0
     km_rodado_total: float = 0.0
     observacao: str = ""
 
@@ -227,6 +227,28 @@ class WorkDayEvent:
             km_value=safe_float(payload.get("km_value"), 0.0) if payload.get("km_value") is not None else None,
             old_value=payload.get("old_value") if isinstance(payload.get("old_value"), dict) else None,
             new_value=payload.get("new_value") if isinstance(payload.get("new_value"), dict) else None,
+            notes=sanitize_nullable_text(payload.get("notes", "")),
+        )
+
+    def to_record(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class WorkKmPeriod:
+    """Historical total-km period model."""
+
+    start_date: str
+    end_date: str
+    km_total_periodo: float
+    notes: str = ""
+
+    @classmethod
+    def from_raw(cls, payload: dict[str, Any]) -> "WorkKmPeriod":
+        return cls(
+            start_date=to_iso_date(payload.get("start_date", ""), fallback=""),
+            end_date=to_iso_date(payload.get("end_date", ""), fallback=""),
+            km_total_periodo=safe_float(payload.get("km_total_periodo", 0.0), 0.0),
             notes=sanitize_nullable_text(payload.get("notes", "")),
         )
 

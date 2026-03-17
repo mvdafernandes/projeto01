@@ -301,8 +301,6 @@ def render_receitas_cadastro() -> None:
     with st.form("cad_receita_form"):
         data = st.date_input("Data", key="cad_receita_data")
         valor = st.number_input("Valor", min_value=0.0, key="cad_receita_valor")
-        km = st.number_input("KM", min_value=0.0, key="cad_receita_km")
-        tempo = st.time_input("Tempo trabalhado (hh:mm:ss)", value=time(0, 0, 0), key="cad_receita_tempo")
         observacao = st.text_input("Observação", key="cad_receita_obs")
         confirmar_exclusao = st.checkbox("Confirmo a exclusão deste registro", key="cad_receita_confirmar_exclusao")
         col1, col2, col3 = st.columns(3)
@@ -311,13 +309,12 @@ def render_receitas_cadastro() -> None:
         excluir = col3.form_submit_button("Excluir")
         selected_id = st.session_state.get("cad_receita_selected_id")
         data_valida = _safe_date_or_none(data)
-        tempo_total = tempo.hour * 3600 + tempo.minute * 60 + tempo.second
         try:
             if salvar:
                 if data_valida is None:
                     st.warning("Selecione uma data válida.")
                 else:
-                    service.criar_receita(data_valida.isoformat(), float(valor), float(km), int(tempo_total), observacao)
+                    service.criar_receita(data_valida.isoformat(), float(valor), observacao=observacao)
                     st.success("Receita salva com sucesso.")
                     _reset_fields(["cad_receita_selected_id", "cad_receita_last_selected_id", "cad_receita_data", "cad_receita_valor", "cad_receita_km", "cad_receita_tempo", "cad_receita_obs", "cad_receita_confirmar_exclusao"])
                     st.rerun()
@@ -327,7 +324,7 @@ def render_receitas_cadastro() -> None:
                 elif data_valida is None:
                     st.warning("Selecione uma data válida.")
                 else:
-                    service.atualizar_receita(int(selected_id), data_valida.isoformat(), float(valor), float(km), int(tempo_total), observacao)
+                    service.atualizar_receita(int(selected_id), data_valida.isoformat(), float(valor), observacao=observacao)
                     st.success("Receita atualizada com sucesso.")
                     st.rerun()
             if excluir:

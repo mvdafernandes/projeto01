@@ -165,23 +165,26 @@ class MetricsService:
         return self._numeric_sum(self._safe_df(df_receitas, self.RECEITAS_COLS), "valor")
 
     def receita_media_diaria(self, df_receitas: pd.DataFrame | None) -> float:
-        """Average receita per row/day."""
+        """Average receita per worked day."""
 
-        return self._numeric_mean(self._safe_df(df_receitas, self.RECEITAS_COLS), "valor")
+        daily = self._daily_receita(df_receitas)
+        if daily.empty:
+            return 0.0
+        return float(pd.to_numeric(daily["valor"], errors="coerce").fillna(0.0).mean())
 
     def dias_trabalhados(self, df_receitas: pd.DataFrame | None) -> int:
-        """Count of worked days/rows."""
+        """Count of distinct worked days."""
 
-        safe_df = self._safe_df(df_receitas, self.RECEITAS_COLS)
-        return int(safe_df.shape[0])
+        daily = self._daily_receita(df_receitas)
+        return int(daily.shape[0])
 
     def dias_meta_batida(self, df_receitas: pd.DataFrame | None, meta: float = 300.0) -> int:
         """Count rows with valor >= target meta."""
 
-        safe_df = self._safe_df(df_receitas, self.RECEITAS_COLS)
-        if safe_df.empty:
+        daily = self._daily_receita(df_receitas)
+        if daily.empty:
             return 0
-        values = pd.to_numeric(safe_df["valor"], errors="coerce").fillna(0.0)
+        values = pd.to_numeric(daily["valor"], errors="coerce").fillna(0.0)
         return int((values >= float(meta)).sum())
 
     def percentual_meta_batida(self, df_receitas: pd.DataFrame | None, meta: float = 300.0) -> float:
@@ -291,7 +294,7 @@ class MetricsService:
 
         return float(safe_divide(self.lucro_bruto(df_receitas, df_despesas), self.km_total(df_receitas), default=0.0))
 
-    def resumo_mensal(self, df_receitas: pd.DataFrame | None, df_despesas: pd.DataFrame | None) -> dict:
+    def resumo_mensal(self, df_receitas: pd.DataFrame | None, df_despesas: pd.DataFrame | None, meta: float = 300.0) -> dict:
         """Monthly summary with guaranteed field schema."""
 
         try:
@@ -304,7 +307,7 @@ class MetricsService:
                 lucro=self.lucro_bruto(df_r, df_d),
                 margem_pct=self.margem_lucro(df_r, df_d),
                 dias_trabalhados=self.dias_trabalhados(df_r),
-                meta_batida_pct=self.percentual_meta_batida(df_r),
+                meta_batida_pct=self.percentual_meta_batida(df_r, meta=meta),
                 receita_por_km=self.receita_por_km(df_r),
                 lucro_por_km=self.lucro_por_km(df_r, df_d),
             )
@@ -312,10 +315,10 @@ class MetricsService:
         except Exception:
             return ResumoMensal().to_dict()
 
-    def score_mensal(self, df_receitas: pd.DataFrame | None, df_despesas: pd.DataFrame | None) -> int:
+    def score_mensal(self, df_receitas: pd.DataFrame | None, df_despesas: pd.DataFrame | None, meta: float = 300.0) -> int:
         """Scoring rule for monthly performance."""
 
-        resumo = self.resumo_mensal(df_receitas, df_despesas)
+        resumo = self.resumo_mensal(df_receitas, df_despesas, meta=meta)
         score = 0
 
         if resumo["margem_%"] >= 40:

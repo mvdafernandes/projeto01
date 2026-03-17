@@ -66,6 +66,19 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn("public.app_current_user_id(", source.replace("drop function if exists public.app_current_user_id()", ""))
         self.assertIn("grant usage on schema public to service_role", source)
 
+    def test_build_id_uses_current_revision_or_env_override(self):
+        from core import build_info
+
+        build_info.get_build_id.cache_clear()
+        with patch.dict("os.environ", {"STREAMLIT_BUILD_ID": "release-20260317"}, clear=False):
+            self.assertEqual(build_info.get_build_id(), "release-")
+
+        build_info.get_build_id.cache_clear()
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("core.build_info.subprocess.run") as run_mock:
+                run_mock.return_value.stdout = "abcdef12\n"
+                self.assertEqual(build_info.get_build_id(), "abcdef12")
+
 
 if __name__ == "__main__":
     unittest.main()

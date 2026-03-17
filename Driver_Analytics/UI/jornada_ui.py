@@ -29,6 +29,7 @@ EVENT_LABELS = {
     "manual_complete": "Complemento manual",
 }
 WORK_DAY_MIGRATION_FILE = "sql/migrations/20260316130000__add_work_days_module.sql"
+WORK_KM_MIGRATION_FILE = "sql/migrations/20260317090000__add_daily_goal_and_work_km_periods.sql"
 
 
 def _safe_dt(value):
@@ -112,52 +113,12 @@ def _event_summary(value) -> str:
 
 def _work_day_bootstrap_message(exc: Exception) -> str:
     message = str(exc or "")
-    if "work_days" in message or "work_day_events" in message:
+    if "work_days" in message or "work_day_events" in message or "work_km_periods" in message:
         return (
             "O modulo Jornada ainda nao esta disponivel neste ambiente. "
-            f"Aplique a migration `{WORK_DAY_MIGRATION_FILE}` no projeto Supabase usado pelo deploy e reinicie o app."
+            f"Aplique as migrations `{WORK_DAY_MIGRATION_FILE}` e `{WORK_KM_MIGRATION_FILE}` no projeto Supabase usado pelo deploy e reinicie o app."
         )
     return f"Falha ao carregar Jornada: {message}"
-
-
-def _render_legacy_backfill() -> None:
-    titulo_secao("Migracao Historica")
-    with st.expander("Migrar jornadas legadas a partir de receitas", expanded=False):
-        st.caption(
-            "Backfill seguro: agrupa receitas por data, simula inicio as 16:00, "
-            "encerra com base no tempo trabalhado registrado e migra apenas o KM remunerado do dia."
-        )
-        with st.form("work_day_legacy_backfill_form"):
-            start_hour = st.number_input("Hora inicial simulada", min_value=0, max_value=23, value=16, step=1, key="wd_backfill_start_hour")
-            overwrite = st.checkbox("Sobrescrever jornadas ja existentes nas mesmas datas", key="wd_backfill_overwrite")
-            confirm = st.checkbox("Confirmo que desejo migrar jornadas historicas com simulacao de horario e KM diario agregado", key="wd_backfill_confirm")
-            submit = st.form_submit_button("Executar migracao historica")
-            if submit:
-                if not confirm:
-                    st.warning("Confirme a migracao para continuar.")
-                else:
-                    try:
-                        resultado = service.migrar_receitas_legadas(
-                            simulated_start_hour=int(start_hour),
-                            overwrite_existing=bool(overwrite),
-                        )
-                        st.success("Migracao historica concluida.")
-                        cols = st.columns(3)
-                        with cols[0]:
-                            render_kpi("Dias migrados", int(resultado["migrated_days"]))
-                        with cols[1]:
-                            render_kpi("KM remunerado total", _format_km(resultado["total_km_remunerado"]))
-                        with cols[2]:
-                            render_kpi("Media KM/dia", _format_km(resultado["media_km_remunerado"]))
-                        st.caption(
-                            "Periodo migrado: "
-                            f"{resultado['first_date'] or '-'} ate {resultado['last_date'] or '-'} | "
-                            f"Dias ignorados: {int(resultado['skipped_days'])} | "
-                            f"Tempo total: {_format_minutes(resultado['total_minutes'])}"
-                        )
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(str(exc))
 
 
 def _render_current_status(jornadas: list[dict]) -> dict | None:
@@ -362,7 +323,9 @@ def _render_manual_edit(jornadas: list[dict]) -> None:
         notes = st.text_area("Observações", value=str(row.get("notes") or ""), key="wd_edit_notes")
         allow_override = st.checkbox("Permitir ajuste manual excepcional", key="wd_edit_override")
         action = st.radio("Ação", ["Completar", "Editar"], horizontal=True, key="wd_edit_action")
-        submit = st.form_submit_button("Salvar alteração")
+        col_save, col_delete = st.columns(2)
+        submit = col_save.form_submit_button("Salvar alteração")
+        delete = col_delete.form_submit_button("Excluir jornada")
         if submit:
             try:
                 start_time_value = _combine_date_time(has_start, start_date, start_clock)
@@ -393,6 +356,13 @@ def _render_manual_edit(jornadas: list[dict]) -> None:
                 st.rerun()
             except Exception as exc:
                 st.error(str(exc))
+        if delete:
+            try:
+                service.deletar_jornada(int(selected_id))
+                st.success("Jornada excluída.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
 
     titulo_secao("Eventos da Jornada")
     events = detail["events"]
@@ -412,6 +382,88 @@ def _render_manual_edit(jornadas: list[dict]) -> None:
             events_df["new_value"] = events_df["new_value"].apply(_event_summary)
         columns = [col for col in ["event_type", "event_timestamp", "km_value", "old_value", "new_value", "notes"] if col in events_df.columns]
         st.dataframe(events_df[columns], width="stretch", hide_index=True)
+
+
+def _render_km_control() -> None:
+    titulo_secao("Controle de KM Total Histórico")
+    periodos = service.listar_km_periodos()
+    options = [None] + [row["id"] for row in periodos]
+    selected_id = st.selectbox(
+        "Período cadastrado",
+        options=options,
+        format_func=lambda x: "Novo período" if x is None else next(
+            (
+                f"ID {row['id']} | {row['start_date']} até {row['end_date']} | {_format_km(row['km_total_periodo'])}"
+                for row in periodos
+                if int(row["id"]) == int(x)
+            ),
+            f"ID {x}",
+        ),
+        key="wd_km_period_selected_id",
+    )
+    selected = next((row for row in periodos if int(row["id"]) == int(selected_id)), None) if selected_id is not None else None
+
+    with st.form("wd_km_period_form"):
+        start_date = st.date_input(
+            "Data inicial do período",
+            value=_date_value((selected or {}).get("start_date")),
+            key="wd_km_period_start_date",
+        )
+        end_date = st.date_input(
+            "Data final do período",
+            value=_date_value((selected or {}).get("end_date")),
+            key="wd_km_period_end_date",
+        )
+        km_total = st.number_input(
+            "KM total percorrido no período",
+            min_value=0.0,
+            step=1.0,
+            value=float((selected or {}).get("km_total_periodo") or 0.0),
+            key="wd_km_period_total",
+        )
+        notes = st.text_area("Observações", value=str((selected or {}).get("notes") or ""), key="wd_km_period_notes")
+        confirmar_exclusao = st.checkbox("Confirmo a exclusão deste período", key="wd_km_period_confirm_delete")
+        col_save, col_update, col_delete = st.columns(3)
+        salvar = col_save.form_submit_button("Salvar (novo)")
+        atualizar = col_update.form_submit_button("Atualizar")
+        excluir = col_delete.form_submit_button("Excluir")
+        try:
+            if salvar:
+                service.criar_km_periodo(start_date.isoformat(), end_date.isoformat(), km_total, notes=notes)
+                st.success("Período salvo.")
+                st.rerun()
+            if atualizar:
+                if selected is None:
+                    st.warning("Selecione um período para atualizar.")
+                else:
+                    service.atualizar_km_periodo(int(selected["id"]), start_date.isoformat(), end_date.isoformat(), km_total, notes=notes)
+                    st.success("Período atualizado.")
+                    st.rerun()
+            if excluir:
+                if selected is None:
+                    st.warning("Selecione um período para excluir.")
+                elif not confirmar_exclusao:
+                    st.warning("Confirme a exclusão para continuar.")
+                else:
+                    service.deletar_km_periodo(int(selected["id"]))
+                    st.success("Período excluído.")
+                    st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+
+    if not periodos:
+        show_empty_data("Nenhum período histórico de KM total cadastrado.")
+        return
+
+    df = pd.DataFrame(periodos)
+    for col in ("km_total_periodo", "km_remunerado_periodo", "km_nao_remunerado_periodo"):
+        if col in df.columns:
+            df[col] = df[col].apply(_format_km)
+    st.dataframe(
+        df[[col for col in ["start_date", "end_date", "km_total_periodo", "km_remunerado_periodo", "km_nao_remunerado_periodo", "notes"] if col in df.columns]],
+        width="stretch",
+        hide_index=True,
+    )
 
 
 def _render_history(jornadas: list[dict]) -> None:
@@ -451,14 +503,16 @@ def pagina_jornada() -> None:
     st.header("Jornada")
     try:
         jornadas = service.listar_jornadas()
+        periodos = service.listar_km_periodos()
     except Exception as exc:
         st.error(_work_day_bootstrap_message(exc))
         st.stop()
     aberta = _render_current_status(jornadas)
 
-    if jornadas:
+    if jornadas or periodos:
         total_km_rem = sum(float(row.get("km_remunerado") or 0.0) for row in jornadas)
         total_km_nao_rem = sum(float(row.get("km_nao_remunerado_antes") or 0.0) for row in jornadas)
+        total_km_nao_rem += sum(float(row.get("km_nao_remunerado_periodo") or 0.0) for row in periodos)
         total_minutes = sum(int(row.get("worked_minutes_final") or 0) for row in jornadas)
         cols = st.columns(3)
         with cols[0]:
@@ -468,8 +522,15 @@ def pagina_jornada() -> None:
         with cols[2]:
             render_kpi("Tempo final", _format_minutes(total_minutes))
 
-    _render_auto_flow(aberta)
-    _render_legacy_backfill()
-    _render_manual_create()
-    _render_manual_edit(jornadas)
-    _render_history(jornadas)
+    tab_operacao, tab_controle, tab_historico = st.tabs(["Operação", "Controle", "Histórico"])
+
+    with tab_operacao:
+        _render_auto_flow(aberta)
+        _render_manual_create()
+        _render_manual_edit(jornadas)
+
+    with tab_controle:
+        _render_km_control()
+
+    with tab_historico:
+        _render_history(jornadas)

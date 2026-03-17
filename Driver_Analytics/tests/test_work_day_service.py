@@ -90,6 +90,9 @@ class _FakeWorkDayEventsRepository:
         rows = [copy.deepcopy(row) for row in self.rows if int(row["work_day_id"]) == int(work_day_id)]
         return pd.DataFrame(rows)
 
+    def deletar_por_work_day(self, work_day_id: int):
+        self.rows = [row for row in self.rows if int(row["work_day_id"]) != int(work_day_id)]
+
 
 class _FakeReceitasRepository:
     def __init__(self, rows: list[dict] | None = None):
@@ -99,12 +102,50 @@ class _FakeReceitasRepository:
         return pd.DataFrame(copy.deepcopy(self.rows))
 
 
+class _FakeWorkKmPeriodsRepository:
+    def __init__(self):
+        self.rows: list[dict] = []
+        self.next_id = 1
+
+    def listar_raw(self):
+        return [copy.deepcopy(row) for row in self.rows]
+
+    def listar(self):
+        return pd.DataFrame(copy.deepcopy(self.rows))
+
+    def buscar_por_id(self, item_id: int):
+        for row in self.rows:
+            if int(row["id"]) == int(item_id):
+                return copy.deepcopy(row)
+        return None
+
+    def inserir(self, payload: dict):
+        row = copy.deepcopy(payload)
+        row["id"] = self.next_id
+        self.next_id += 1
+        row.setdefault("created_at", f"2026-03-{row['id']:02d}T00:00:00+00:00")
+        row.setdefault("updated_at", row["created_at"])
+        self.rows.append(row)
+        return copy.deepcopy(row)
+
+    def atualizar(self, item_id: int, payload: dict):
+        for idx, row in enumerate(self.rows):
+            if int(row["id"]) == int(item_id):
+                self.rows[idx] = {**row, **copy.deepcopy(payload), "id": int(item_id)}
+                return copy.deepcopy(self.rows[idx])
+        return None
+
+    def deletar(self, item_id: int):
+        self.rows = [row for row in self.rows if int(row["id"]) != int(item_id)]
+
+
 class WorkDayServiceTests(unittest.TestCase):
     def setUp(self):
         self.service = WorkDayService()
         self.service.work_days_repo = _FakeWorkDaysRepository()
         self.service.events_repo = _FakeWorkDayEventsRepository()
         self.service.receitas_repo = _FakeReceitasRepository()
+        self.service.work_km_periods_repo = _FakeWorkKmPeriodsRepository()
 
     def test_iniciar_jornada_cria_open_e_registra_evento(self):
         self.service._utc_now = lambda: datetime(2026, 3, 16, 8, 0, tzinfo=timezone.utc)
@@ -206,6 +247,7 @@ class WorkDayServiceTests(unittest.TestCase):
     def test_bootstrap_message_indica_migration_pendente(self):
         message = _work_day_bootstrap_message(RuntimeError("Falha ao consultar work_days no Supabase: relation \"public.work_days\" does not exist"))
         self.assertIn("20260316130000__add_work_days_module.sql", message)
+        self.assertIn("20260317090000__add_daily_goal_and_work_km_periods.sql", message)
         self.assertIn("Jornada", message)
 
     def test_manual_timestamp_is_converted_from_local_timezone_to_utc(self):
@@ -228,6 +270,52 @@ class WorkDayServiceTests(unittest.TestCase):
 
         self.assertEqual(detail["work_day"]["work_date"], "2026-03-16")
         self.assertEqual(detail["work_day"]["start_time"], "2026-03-17T02:00:00+00:00")
+
+    def test_deletar_jornada_recalcula_jornada_seguinte(self):
+        first = self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-15",
+                "start_time": "2026-03-15T08:00:00+00:00",
+                "end_time": "2026-03-15T18:00:00+00:00",
+                "start_km": 100.0,
+                "end_km": 150.0,
+                "status": "closed",
+            }
+        )
+        second = self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-16",
+                "start_time": "2026-03-16T08:00:00+00:00",
+                "end_time": "2026-03-16T18:00:00+00:00",
+                "start_km": 170.0,
+                "end_km": 230.0,
+                "status": "closed",
+            }
+        )
+        self.service._recalculate_all()
+
+        self.service.deletar_jornada(int(first["id"]))
+
+        updated_second = self.service.detalhar_jornada(int(second["id"]))
+        self.assertEqual(updated_second["work_day"]["km_nao_remunerado_antes"], None)
+
+    def test_km_periodo_calcula_nao_remunerado(self):
+        self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-16",
+                "start_time": "2026-03-16T08:00:00+00:00",
+                "end_time": "2026-03-16T18:00:00+00:00",
+                "start_km": 100.0,
+                "end_km": 180.0,
+                "km_remunerado": 80.0,
+                "status": "closed",
+            }
+        )
+
+        period = self.service.criar_km_periodo("2026-03-16", "2026-03-16", 100.0, notes="Histórico")
+
+        self.assertEqual(period["km_remunerado_periodo"], 80.0)
+        self.assertEqual(period["km_nao_remunerado_periodo"], 20.0)
 
     def test_migrar_receitas_legadas_agrega_por_dia_e_simula_jornada(self):
         self.service.receitas_repo = _FakeReceitasRepository(

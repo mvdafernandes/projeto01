@@ -12,6 +12,9 @@ from repositories.controle_km_repository import ControleKMRepository
 from repositories.despesas_repository import DespesasRepository
 from repositories.investimentos_repository import InvestimentosRepository
 from repositories.receitas_repository import ReceitasRepository
+from repositories.usuarios_repository import UsuariosRepository
+from repositories.work_days_repository import WorkDaysRepository
+from repositories.work_km_periods_repository import WorkKmPeriodsRepository
 from services.metrics_service import MetricsService
 
 
@@ -25,6 +28,9 @@ class DashboardService:
         self.controle_litros_repo = ControleLitrosRepository()
         self.investimentos_repo = InvestimentosRepository()
         self.categorias_repo = CategoriasDespesasRepository()
+        self.usuarios_repo = UsuariosRepository()
+        self.work_days_repo = WorkDaysRepository()
+        self.work_km_periods_repo = WorkKmPeriodsRepository()
         self.metrics = MetricsService()
 
     @staticmethod
@@ -77,8 +83,9 @@ class DashboardService:
         self,
         data: str,
         valor: float,
-        km: float,
-        tempo_trabalhado: int,
+        observacao: str = "",
+        km: float = 0.0,
+        tempo_trabalhado: int = 0,
         km_rodado_total: float = 0.0,
         ignore_id: int | None = None,
     ) -> bool:
@@ -93,11 +100,13 @@ class DashboardService:
             df_cmp["km_rodado_total"] = 0.0
         df_cmp["km_rodado_total_cmp"] = pd.to_numeric(df_cmp["km_rodado_total"], errors="coerce").fillna(0.0)
         df_cmp["tempo_cmp"] = pd.to_numeric(df_cmp["tempo trabalhado"], errors="coerce").fillna(0).astype(int)
+        df_cmp["obs_cmp"] = df_cmp.get("observacao", pd.Series(dtype="object")).fillna("").astype(str).str.strip()
         if ignore_id is not None and "id" in df_cmp.columns:
             df_cmp = df_cmp[df_cmp["id"] != int(ignore_id)]
         return (
             (df_cmp["data_cmp"] == self._to_date_str(data))
             & (df_cmp["valor_cmp"] == self._to_float(valor))
+            & (df_cmp["obs_cmp"] == str(observacao or "").strip())
             & (df_cmp["km_cmp"] == self._to_float(km))
             & (df_cmp["km_rodado_total_cmp"] == self._to_float(km_rodado_total))
             & (df_cmp["tempo_cmp"] == self._to_int(tempo_trabalhado))
@@ -234,6 +243,116 @@ class DashboardService:
     def listar_investimentos(self) -> pd.DataFrame:
         return self.investimentos_repo.listar()
 
+    def listar_work_days(self) -> pd.DataFrame:
+        return self.work_days_repo.listar()
+
+    def listar_work_km_periods(self) -> pd.DataFrame:
+        try:
+            return self.work_km_periods_repo.listar()
+        except Exception:
+            return pd.DataFrame()
+
+    def obter_daily_goal(self) -> float:
+        return float(self.usuarios_repo.obter_daily_goal())
+
+    def atualizar_daily_goal(self, daily_goal: float) -> None:
+        goal = max(0.0, self._to_float(daily_goal))
+        self.usuarios_repo.atualizar_daily_goal(goal)
+
+    @staticmethod
+    def _date_overlap_days(start_a, end_a, start_b, end_b) -> int:
+        overlap_start = max(pd.to_datetime(start_a), pd.to_datetime(start_b))
+        overlap_end = min(pd.to_datetime(end_a), pd.to_datetime(end_b))
+        if overlap_start > overlap_end:
+            return 0
+        return int((overlap_end - overlap_start).days + 1)
+
+    def km_snapshot(self, start_date, end_date) -> dict[str, float]:
+        start_ts = pd.to_datetime(start_date, errors="coerce")
+        end_ts = pd.to_datetime(end_date, errors="coerce")
+        if pd.isna(start_ts) or pd.isna(end_ts):
+            return {"km_remunerado": 0.0, "km_total": 0.0, "km_nao_remunerado": 0.0}
+
+        start_day = pd.Timestamp(start_ts).date()
+        end_day = pd.Timestamp(end_ts).date()
+
+        jornadas = self.listar_work_days()
+        if not jornadas.empty and "work_date" in jornadas.columns:
+            jornadas = jornadas.copy()
+            jornadas["work_date"] = pd.to_datetime(jornadas["work_date"], errors="coerce").dt.date
+            jornadas = jornadas[(jornadas["work_date"] >= start_day) & (jornadas["work_date"] <= end_day)]
+        remunerado_jornada = float(pd.to_numeric(jornadas.get("km_remunerado"), errors="coerce").fillna(0.0).sum()) if not jornadas.empty else 0.0
+
+        # Fallback temporário para receitas legadas quando o período ainda não tiver jornadas.
+        remunerado_fallback = 0.0
+        if remunerado_jornada <= 0:
+            receitas = self.listar_receitas()
+            if not receitas.empty and "data" in receitas.columns:
+                receitas = receitas.copy()
+                receitas["data"] = pd.to_datetime(receitas["data"], errors="coerce").dt.date
+                receitas = receitas[(receitas["data"] >= start_day) & (receitas["data"] <= end_day)]
+                remunerado_fallback = float(pd.to_numeric(receitas.get("km"), errors="coerce").fillna(0.0).sum())
+        km_remunerado = float(remunerado_jornada if remunerado_jornada > 0 else remunerado_fallback)
+
+        total_from_periods = 0.0
+        periods = self.listar_work_km_periods()
+        covered_days: set[str] = set()
+        if not periods.empty:
+            periods = periods.copy()
+            periods["start_date"] = pd.to_datetime(periods["start_date"], errors="coerce").dt.date
+            periods["end_date"] = pd.to_datetime(periods["end_date"], errors="coerce").dt.date
+            periods["km_total_periodo"] = pd.to_numeric(periods["km_total_periodo"], errors="coerce").fillna(0.0)
+            for row in periods.to_dict(orient="records"):
+                overlap_days = self._date_overlap_days(row["start_date"], row["end_date"], start_day, end_day)
+                if overlap_days <= 0:
+                    continue
+                total_days = self._date_overlap_days(row["start_date"], row["end_date"], row["start_date"], row["end_date"])
+                if total_days <= 0:
+                    continue
+                total_from_periods += float(row["km_total_periodo"]) * float(overlap_days / total_days)
+                for day in pd.date_range(max(pd.Timestamp(row["start_date"]), pd.Timestamp(start_day)), min(pd.Timestamp(row["end_date"]), pd.Timestamp(end_day)), freq="D"):
+                    covered_days.add(day.date().isoformat())
+
+        total_from_jornada = 0.0
+        if not jornadas.empty:
+            for row in jornadas.to_dict(orient="records"):
+                day_key = pd.Timestamp(row["work_date"]).date().isoformat() if pd.notna(row.get("work_date")) else ""
+                if day_key in covered_days:
+                    continue
+                start_km = pd.to_numeric(row.get("start_km"), errors="coerce")
+                end_km = pd.to_numeric(row.get("end_km"), errors="coerce")
+                km_rem = self._to_float(row.get("km_remunerado"))
+                km_gap = self._to_float(row.get("km_nao_remunerado_antes"))
+                if pd.notna(start_km) and pd.notna(end_km):
+                    total_from_jornada += float(max(float(end_km) - float(start_km), 0.0))
+                elif km_rem or km_gap:
+                    total_from_jornada += float(max(km_rem + km_gap, 0.0))
+
+        total_from_controle = 0.0
+        if total_from_periods + total_from_jornada <= 0:
+            controle = self.listar_controle_km()
+            if not controle.empty:
+                controle = controle.copy()
+                controle["data_inicio"] = pd.to_datetime(controle["data_inicio"], errors="coerce").dt.date
+                controle["data_fim"] = pd.to_datetime(controle["data_fim"], errors="coerce").dt.date
+                controle["km_total_rodado"] = pd.to_numeric(controle.get("km_total_rodado"), errors="coerce").fillna(0.0)
+                for row in controle.to_dict(orient="records"):
+                    overlap_days = self._date_overlap_days(row["data_inicio"], row["data_fim"], start_day, end_day)
+                    if overlap_days <= 0:
+                        continue
+                    total_days = self._date_overlap_days(row["data_inicio"], row["data_fim"], row["data_inicio"], row["data_fim"])
+                    if total_days <= 0:
+                        continue
+                    total_from_controle += float(row["km_total_rodado"]) * float(overlap_days / total_days)
+
+        km_total = float(max(total_from_periods + total_from_jornada + total_from_controle, 0.0))
+        km_nao_remunerado = float(max(km_total - km_remunerado, 0.0))
+        return {
+            "km_remunerado": km_remunerado,
+            "km_total": km_total,
+            "km_nao_remunerado": km_nao_remunerado,
+        }
+
     def criar_controle_km(self, data_inicio: str, data_fim: str, km_total_rodado: float) -> None:
         self.controle_km_repo.inserir(data_inicio, data_fim, km_total_rodado)
 
@@ -256,12 +375,12 @@ class DashboardService:
         self,
         data: str,
         valor: float,
-        km: float,
-        tempo_trabalhado: int,
+        km: float = 0.0,
+        tempo_trabalhado: int = 0,
         observacao: str = "",
         km_rodado_total: float = 0.0,
     ) -> None:
-        if self._receita_duplicada(data, valor, km, tempo_trabalhado, km_rodado_total=km_rodado_total):
+        if self._receita_duplicada(data, valor, observacao, km, tempo_trabalhado, km_rodado_total=km_rodado_total):
             raise ValueError("Registro já existente.")
         self.receitas_repo.inserir(data, valor, km, tempo_trabalhado, observacao, km_rodado_total=km_rodado_total)
 
@@ -270,12 +389,20 @@ class DashboardService:
         item_id: int,
         data: str,
         valor: float,
-        km: float,
-        tempo_trabalhado: int,
-        observacao: str,
+        km: float = 0.0,
+        tempo_trabalhado: int = 0,
+        observacao: str = "",
         km_rodado_total: float = 0.0,
     ) -> None:
-        if self._receita_duplicada(data, valor, km, tempo_trabalhado, km_rodado_total=km_rodado_total, ignore_id=item_id):
+        if self._receita_duplicada(
+            data,
+            valor,
+            observacao,
+            km,
+            tempo_trabalhado,
+            km_rodado_total=km_rodado_total,
+            ignore_id=item_id,
+        ):
             raise ValueError("Registro já existente.")
         self.receitas_repo.atualizar(
             item_id,
@@ -512,7 +639,7 @@ class DashboardService:
         self.investimentos_repo.recalcular_patrimonio_total()
 
     def resumo_mensal(self, df_receitas: pd.DataFrame, df_despesas: pd.DataFrame) -> dict:
-        return self.metrics.resumo_mensal(df_receitas, df_despesas)
+        return self.metrics.resumo_mensal(df_receitas, df_despesas, meta=self.obter_daily_goal())
 
     def score_mensal(self, df_receitas: pd.DataFrame, df_despesas: pd.DataFrame) -> int:
-        return self.metrics.score_mensal(df_receitas, df_despesas)
+        return self.metrics.score_mensal(df_receitas, df_despesas, meta=self.obter_daily_goal())

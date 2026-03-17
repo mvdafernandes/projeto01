@@ -41,6 +41,10 @@ class BackupServiceTests(unittest.TestCase):
         self.service.controle_km_repo = MagicMock()
         self.service.controle_litros_repo = MagicMock()
         self.service.categorias_repo = MagicMock()
+        self.service.usuarios_repo = MagicMock()
+        self.service.work_days_repo = MagicMock()
+        self.service.work_day_events_repo = MagicMock()
+        self.service.work_km_periods_repo = MagicMock()
         self.service.receitas_repo._current_user_id.return_value = 10
 
     def test_export_payload_includes_format_and_counts(self):
@@ -50,20 +54,25 @@ class BackupServiceTests(unittest.TestCase):
         self.service.controle_km_repo.listar.return_value = pd.DataFrame()
         self.service.controle_litros_repo.listar.return_value = pd.DataFrame()
         self.service.categorias_repo.listar.return_value = pd.DataFrame([{"nome": "Combustível"}])
+        self.service.usuarios_repo.obter_daily_goal.return_value = 350.0
+        self.service.work_days_repo.listar.return_value = pd.DataFrame()
+        self.service.work_km_periods_repo.listar.return_value = pd.DataFrame()
 
         payload = self.service.export_payload()
 
         self.assertEqual(payload["format"], "driver_analytics_backup")
-        self.assertEqual(payload["version"], 1)
+        self.assertEqual(payload["version"], 2)
         self.assertEqual(int(payload["counts"]["receitas"]), 1)
         self.assertEqual(int(payload["counts"]["despesas"]), 1)
         self.assertEqual(int(payload["counts"]["categorias_despesas"]), 1)
+        self.assertEqual(float(payload["data"]["settings"][0]["daily_goal"]), 350.0)
 
     def test_import_payload_inserts_records_and_recalculates_investimentos(self):
         payload = {
             "format": "driver_analytics_backup",
-            "version": 1,
+            "version": 2,
             "data": {
+                "settings": [{"daily_goal": 425.0}],
                 "categorias_despesas": [{"nome": "Combustível"}],
                 "receitas": [
                     {
@@ -102,17 +111,22 @@ class BackupServiceTests(unittest.TestCase):
                 ],
                 "controle_km": [{"data_inicio": "2026-02-01", "data_fim": "2026-02-01", "km_total_rodado": 120.0}],
                 "controle_litros": [{"data": "2026-02-01", "litros": 20.0}],
+                "work_days": [],
+                "work_day_events": [],
+                "work_km_periods": [{"start_date": "2026-02-01", "end_date": "2026-02-03", "km_total_periodo": 250.0, "notes": "Hist"}],
             },
         }
 
         result = self.service.import_payload(payload, replace_existing=False)
 
         self.service.categorias_repo.inserir.assert_called_once_with("Combustível")
+        self.service.usuarios_repo.atualizar_daily_goal.assert_called_once_with(425.0)
         self.assertEqual(self.service.receitas_repo.inserir.call_count, 1)
         self.assertEqual(self.service.despesas_repo.inserir.call_count, 1)
         self.assertEqual(self.service.investimentos_repo.inserir.call_count, 1)
         self.assertEqual(self.service.controle_km_repo.inserir.call_count, 1)
         self.assertEqual(self.service.controle_litros_repo.inserir.call_count, 1)
+        self.assertEqual(self.service.work_km_periods_repo.inserir.call_count, 1)
         self.service.investimentos_repo.recalcular_total_aportado.assert_called_once()
         self.service.investimentos_repo.recalcular_patrimonio_total.assert_called_once()
         self.assertEqual(int(result["receitas"]), 1)

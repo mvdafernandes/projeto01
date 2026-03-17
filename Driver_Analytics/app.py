@@ -5,6 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from core.auth import get_logged_user_id, get_logged_username, login_required, render_logout_button
+from core.build_info import get_build_id
 from core.config import get_settings
 from core.database import get_supabase_client
 from UI.components import aplicar_estilo_global, render_hero_banner
@@ -31,7 +32,7 @@ username = get_logged_username()
 if username:
     user_id = get_logged_user_id()
     st.sidebar.markdown(f"**Usuário logado:** `{username}` | id `{user_id}`")
-st.sidebar.caption("build 1985d35")
+st.sidebar.caption(f"build {get_build_id()}")
 
 render_logout_button()
 
