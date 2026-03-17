@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, time
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -12,6 +13,7 @@ from services.work_day_service import WorkDayService
 
 
 service = WorkDayService()
+APP_TZ = ZoneInfo("America/Sao_Paulo")
 STATUS_LABELS = {
     "open": "Em andamento",
     "closed": "Fechada",
@@ -31,7 +33,12 @@ WORK_DAY_MIGRATION_FILE = "sql/migrations/20260316130000__add_work_days_module.s
 
 def _safe_dt(value):
     parsed = pd.to_datetime(value, errors="coerce")
-    return None if pd.isna(parsed) else parsed
+    if pd.isna(parsed):
+        return None
+    dt = parsed.to_pydatetime()
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=APP_TZ)
+    return dt.astimezone(APP_TZ)
 
 
 def _date_value(value):
@@ -77,7 +84,7 @@ def _bool_default(row: dict, key: str) -> bool:
 def _combine_date_time(enabled: bool, input_date: date, input_time: time) -> str | None:
     if not enabled:
         return None
-    return f"{input_date.isoformat()}T{input_time.isoformat()}"
+    return pd.Timestamp.combine(input_date, input_time).tz_localize(APP_TZ).isoformat()
 
 
 def _event_summary(value) -> str:
@@ -183,7 +190,7 @@ def _render_current_status(jornadas: list[dict]) -> dict | None:
         with cols[0]:
             render_kpi("Status", "Sem jornada aberta")
         with cols[1]:
-            render_kpi("Hoje", date.today().isoformat())
+            render_kpi("Hoje", pd.Timestamp.now(tz=APP_TZ).date().isoformat())
         with cols[2]:
             render_kpi("Jornadas incompletas", sum(1 for row in jornadas if row.get("status") == "partial"))
     return None

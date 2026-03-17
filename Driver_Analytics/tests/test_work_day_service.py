@@ -208,6 +208,27 @@ class WorkDayServiceTests(unittest.TestCase):
         self.assertIn("20260316130000__add_work_days_module.sql", message)
         self.assertIn("Jornada", message)
 
+    def test_manual_timestamp_is_converted_from_local_timezone_to_utc(self):
+        detail = self.service.criar_jornada_manual(
+            work_date="2026-03-16",
+            start_time="2026-03-16T16:00:00",
+            end_time="2026-03-16T18:30:00",
+            start_km=100.0,
+            end_km=140.0,
+        )
+
+        self.assertEqual(detail["work_day"]["start_time"], "2026-03-16T19:00:00+00:00")
+        self.assertEqual(detail["work_day"]["end_time"], "2026-03-16T21:30:00+00:00")
+        self.assertEqual(detail["work_day"]["worked_minutes_calculated"], 150)
+
+    def test_work_date_uses_local_timezone_on_check_in(self):
+        self.service._utc_now = lambda: datetime(2026, 3, 17, 2, 0, tzinfo=timezone.utc)
+
+        detail = self.service.iniciar_jornada(start_km=10.0)
+
+        self.assertEqual(detail["work_day"]["work_date"], "2026-03-16")
+        self.assertEqual(detail["work_day"]["start_time"], "2026-03-17T02:00:00+00:00")
+
     def test_migrar_receitas_legadas_agrega_por_dia_e_simula_jornada(self):
         self.service.receitas_repo = _FakeReceitasRepository(
             [

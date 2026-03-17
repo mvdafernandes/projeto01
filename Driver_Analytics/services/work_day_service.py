@@ -32,12 +32,14 @@ class WorkDayService:
     def _utc_now() -> datetime:
         return datetime.now(timezone.utc)
 
-    @staticmethod
-    def _to_datetime(value: Any) -> datetime | None:
-        parsed = pd.to_datetime(value, errors="coerce", utc=True)
+    def _to_datetime(self, value: Any) -> datetime | None:
+        parsed = pd.to_datetime(value, errors="coerce")
         if pd.isna(parsed):
             return None
-        return parsed.to_pydatetime()
+        dt = parsed.to_pydatetime()
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=self._app_tz())
+        return dt.astimezone(timezone.utc)
 
     @staticmethod
     def _to_date_str(value: Any) -> str:
@@ -46,12 +48,9 @@ class WorkDayService:
             return ""
         return parsed.date().isoformat()
 
-    @staticmethod
-    def _to_iso_timestamp(value: Any) -> str:
-        parsed = pd.to_datetime(value, errors="coerce", utc=True)
-        if pd.isna(parsed):
-            return ""
-        return parsed.to_pydatetime().isoformat()
+    def _to_iso_timestamp(self, value: Any) -> str:
+        parsed = self._to_datetime(value)
+        return parsed.isoformat() if parsed is not None else ""
 
     def _build_legacy_day_timestamps(self, work_date: str, worked_seconds: int, start_hour: int = 16) -> tuple[str, str]:
         start_local = datetime.fromisoformat(f"{work_date}T{int(start_hour):02d}:00:00").replace(tzinfo=self._app_tz())
@@ -406,7 +405,7 @@ class WorkDayService:
             raise ValueError("Já existe uma jornada aberta para este usuário.")
 
         now = self._utc_now()
-        work_date = now.date().isoformat()
+        work_date = now.astimezone(self._app_tz()).date().isoformat()
         start_km_value = self._to_float_or_none(start_km)
         if start_km_value is None:
             raise ValueError("Informe um KM inicial válido.")
