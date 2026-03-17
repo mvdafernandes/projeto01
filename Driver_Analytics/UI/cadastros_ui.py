@@ -180,10 +180,7 @@ def _set_invest_rendimento_fields(row: pd.Series | None) -> None:
     data_fim = _date_or_today((row.get("data_fim") if row is not None else None) or (row["data"] if row is not None else None))
     st.session_state["cad_inv_rend_data_inicio"] = data_inicio
     st.session_state["cad_inv_rend_data_fim"] = data_fim
-    # Avoid mutating a key bound to an already-rendered widget in the same run.
-    # The category selector is rendered before this setter is called.
-    if "cad_inv_rend_categoria" not in st.session_state:
-        st.session_state["cad_inv_rend_categoria"] = str(row.get("categoria", "Renda Fixa")) if row is not None else "Renda Fixa"
+    st.session_state["cad_inv_rend_categoria"] = str(row.get("categoria", "Renda Fixa")) if row is not None else "Renda Fixa"
     st.session_state["cad_inv_rend_rendimento"] = float(row["rendimento"]) if row is not None else 0.0
     st.session_state["cad_inv_rend_patrimonio"] = float(row["patrimonio total"]) if row is not None else 0.0
     st.session_state["cad_inv_rend_confirmar_exclusao"] = False
@@ -215,14 +212,45 @@ def _ensure_selected_option(select_key: str, options: list[int | None]) -> None:
         st.session_state[select_key] = options[0] if options else None
 
 
+def _sort_desc_by_id(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "id" not in df.columns:
+        return df.copy()
+    return df.sort_values(by="id", ascending=False).reset_index(drop=True)
+
+
+def _display_record_number(df: pd.DataFrame, item_id: int | None) -> int | None:
+    if item_id is None or df.empty or "id" not in df.columns:
+        return None
+    ordered = _sort_desc_by_id(df)
+    matches = ordered.index[ordered["id"] == int(item_id)].tolist()
+    return int(matches[0] + 1) if matches else None
+
+
+def _with_display_order(df: pd.DataFrame, column_name: str = "registro") -> pd.DataFrame:
+    ordered = _sort_desc_by_id(df)
+    if ordered.empty:
+        return ordered
+    ordered[column_name] = range(1, len(ordered) + 1)
+    return ordered
+
+
+def _record_label(df: pd.DataFrame, item_id: int | None, summary: str) -> str:
+    if item_id is None:
+        return "Novo registro"
+    display_number = _display_record_number(df, item_id)
+    if display_number is None:
+        return f"Registro ? | {summary}"
+    return f"Registro {display_number} | {summary}"
+
+
 def _receita_label(df: pd.DataFrame, item_id: int | None) -> str:
     if item_id is None:
         return "Novo registro"
     row = _get_row_by_id(df, item_id)
     if row is None:
-        return f"ID {item_id}"
+        return "Registro ?"
     data_txt = _date_or_today(row["data"]).isoformat()
-    return f"ID {item_id} | {data_txt} | {formatar_moeda(float(row['valor']))}"
+    return _record_label(df, item_id, f"{data_txt} | {formatar_moeda(float(row['valor']))}")
 
 
 def _despesa_label(df: pd.DataFrame, item_id: int | None) -> str:
@@ -230,10 +258,10 @@ def _despesa_label(df: pd.DataFrame, item_id: int | None) -> str:
         return "Novo registro"
     row = _get_row_by_id(df, item_id)
     if row is None:
-        return f"ID {item_id}"
+        return "Registro ?"
     data_txt = _date_or_today(row["data"]).isoformat()
     categoria = str(row["categoria"]).strip() or "Sem categoria"
-    return f"ID {item_id} | {data_txt} | {categoria}"
+    return _record_label(df, item_id, f"{data_txt} | {categoria}")
 
 
 def _investimento_rendimento_label(df: pd.DataFrame, item_id: int | None) -> str:
@@ -243,11 +271,11 @@ def _investimento_rendimento_label(df: pd.DataFrame, item_id: int | None) -> str
         return "Novo lançamento"
     row = _get_row_by_id(df, item_id)
     if row is None:
-        return f"ID {item_id}"
+        return "Registro ?"
     data_txt = _date_or_today(row["data"]).isoformat()
     cat = str(row.get("categoria", "Renda Fixa"))
     rendimento = formatar_moeda(float(row.get("rendimento", 0.0)))
-    return f"ID {item_id} | {data_txt} | {cat} | Rend. {rendimento}"
+    return _record_label(df, item_id, f"{data_txt} | {cat} | Rend. {rendimento}")
 
 
 def _investimento_aporte_label(df: pd.DataFrame, item_id: int | None) -> str:
@@ -257,11 +285,11 @@ def _investimento_aporte_label(df: pd.DataFrame, item_id: int | None) -> str:
         return "Novo lançamento"
     row = _get_row_by_id(df, item_id)
     if row is None:
-        return f"ID {item_id}"
+        return "Registro ?"
     data_txt = _date_or_today(row["data"]).isoformat()
     cat = str(row.get("categoria", "Renda Fixa"))
     aporte = formatar_moeda(float(row.get("aporte", 0.0)))
-    return f"ID {item_id} | {data_txt} | {cat} | Aporte {aporte}"
+    return _record_label(df, item_id, f"{data_txt} | {cat} | Aporte {aporte}")
 
 
 def _investimento_retirada_label(df: pd.DataFrame, item_id: int | None) -> str:
@@ -271,11 +299,11 @@ def _investimento_retirada_label(df: pd.DataFrame, item_id: int | None) -> str:
         return "Novo lançamento"
     row = _get_row_by_id(df, item_id)
     if row is None:
-        return f"ID {item_id}"
+        return "Registro ?"
     data_txt = _date_or_today(row["data"]).isoformat()
     cat = str(row.get("categoria", "Renda Fixa"))
     retirada = formatar_moeda(abs(float(row.get("aporte", 0.0))))
-    return f"ID {item_id} | {data_txt} | {cat} | Retirada {retirada}"
+    return _record_label(df, item_id, f"{data_txt} | {cat} | Retirada {retirada}")
 
 
 def _patrimonio_atual(df: pd.DataFrame) -> float:
@@ -292,9 +320,7 @@ def _patrimonio_atual(df: pd.DataFrame) -> float:
 
 def render_receitas_cadastro() -> None:
     titulo_secao("Cadastro de Receitas")
-    df_receitas = service.listar_receitas()
-    if not df_receitas.empty and "id" in df_receitas.columns:
-        df_receitas = df_receitas.sort_values(by="id", ascending=False)
+    df_receitas = _sort_desc_by_id(service.listar_receitas())
     options = [None] + (df_receitas["id"].astype(int).tolist() if "id" in df_receitas.columns else [])
     st.selectbox("Registro", options=options, format_func=lambda x: _receita_label(df_receitas, x), key="cad_receita_selected_id")
     _sync_edit_state(df_receitas, "cad_receita_selected_id", "cad_receita_last_selected_id", _set_receita_fields)
@@ -345,9 +371,7 @@ def render_receitas_cadastro() -> None:
 
 def render_despesas_cadastro() -> None:
     titulo_secao("Cadastro de Despesas")
-    df_despesas = service.listar_despesas()
-    if not df_despesas.empty and "id" in df_despesas.columns:
-        df_despesas = df_despesas.sort_values(by="id", ascending=False)
+    df_despesas = _sort_desc_by_id(service.listar_despesas())
     options = [None] + (df_despesas["id"].astype(int).tolist() if "id" in df_despesas.columns else [])
     st.selectbox("Registro", options=options, format_func=lambda x: _despesa_label(df_despesas, x), key="cad_despesa_selected_id")
     _sync_edit_state(df_despesas, "cad_despesa_selected_id", "cad_despesa_last_selected_id", _set_despesa_fields)

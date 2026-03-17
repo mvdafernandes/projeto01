@@ -43,6 +43,11 @@ class DashboardService:
     @staticmethod
     def _to_float(value) -> float:
         try:
+            if pd.isna(value):
+                return 0.0
+        except Exception:
+            pass
+        try:
             return float(value)
         except Exception:
             return 0.0
@@ -324,8 +329,9 @@ class DashboardService:
                 km_rem = self._to_float(row.get("km_remunerado"))
                 km_gap = self._to_float(row.get("km_nao_remunerado_antes"))
                 if pd.notna(start_km) and pd.notna(end_km):
-                    total_from_jornada += float(max(float(end_km) - float(start_km), 0.0))
-                elif km_rem or km_gap:
+                    remunerado_dia = float(max(float(end_km) - float(start_km), 0.0))
+                    total_from_jornada += float(max(remunerado_dia + max(km_gap, 0.0), 0.0))
+                elif not covered_days and (km_rem or km_gap):
                     total_from_jornada += float(max(km_rem + km_gap, 0.0))
 
         total_from_controle = 0.0

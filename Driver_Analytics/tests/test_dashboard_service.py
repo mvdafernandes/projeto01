@@ -16,8 +16,14 @@ class DashboardServiceRulesTests(unittest.TestCase):
         self.service.receitas_repo = MagicMock()
         self.service.despesas_repo = MagicMock()
         self.service.investimentos_repo = MagicMock()
+        self.service.work_days_repo = MagicMock()
+        self.service.work_km_periods_repo = MagicMock()
+        self.service.controle_km_repo = MagicMock()
         self.service.categorias_repo = MagicMock()
         self.service.categorias_repo.listar.return_value = pd.DataFrame(columns=["id", "nome"])
+        self.service.work_days_repo.listar.return_value = pd.DataFrame()
+        self.service.work_km_periods_repo.listar.return_value = pd.DataFrame()
+        self.service.controle_km_repo.listar.return_value = pd.DataFrame()
 
     def test_criar_receita_bloqueia_duplicada(self):
         self.service.receitas_repo.listar.return_value = pd.DataFrame(
@@ -188,6 +194,42 @@ class DashboardServiceRulesTests(unittest.TestCase):
         self.service.investimentos_repo.deletar.assert_called_once_with(3)
         self.service.investimentos_repo.recalcular_total_aportado.assert_called_once()
         self.service.investimentos_repo.recalcular_patrimonio_total.assert_called_once()
+
+    def test_km_snapshot_soma_periodo_historico_com_intervalo_e_km_remunerado(self):
+        self.service.work_km_periods_repo.listar.return_value = pd.DataFrame(
+            [
+                {
+                    "id": 1,
+                    "start_date": "2026-03-01",
+                    "end_date": "2026-03-03",
+                    "km_total_periodo": 400.0,
+                }
+            ]
+        )
+        self.service.work_days_repo.listar.return_value = pd.DataFrame(
+            [
+                {
+                    "work_date": "2026-03-04",
+                    "start_km": 1200.0,
+                    "end_km": 1210.0,
+                    "km_remunerado": 10.0,
+                    "km_nao_remunerado_antes": None,
+                },
+                {
+                    "work_date": "2026-03-05",
+                    "start_km": 1220.0,
+                    "end_km": 1230.0,
+                    "km_remunerado": 10.0,
+                    "km_nao_remunerado_antes": 10.0,
+                },
+            ]
+        )
+
+        snapshot = self.service.km_snapshot("2026-03-01", "2026-03-05")
+
+        self.assertEqual(snapshot["km_remunerado"], 20.0)
+        self.assertEqual(snapshot["km_total"], 430.0)
+        self.assertEqual(snapshot["km_nao_remunerado"], 410.0)
 
 
 if __name__ == "__main__":

@@ -29,7 +29,9 @@ from UI.cadastros_ui import (
     _set_invest_aporte_fields,
     _set_invest_retirada_fields,
     _set_invest_rendimento_fields,
+    _sort_desc_by_id,
     _sync_edit_state,
+    _with_display_order,
 )
 from UI.components import format_currency, format_percent, formatar_moeda, render_kpi, show_empty_data, titulo_secao
 from services.dashboard_service import DashboardService
@@ -357,9 +359,10 @@ def _render_forms(df_investimentos: pd.DataFrame) -> None:
         if cat and cat not in categorias_invest:
             categorias_invest.append(cat)
 
-    df_aportes = df_investimentos[df_investimentos["aporte"] > 0].copy() if not df_investimentos.empty else pd.DataFrame()
-    df_rendimentos = df_investimentos[df_investimentos["aporte"] == 0].copy() if not df_investimentos.empty else pd.DataFrame()
-    df_retiradas = df_investimentos[df_investimentos["aporte"] < 0].copy() if not df_investimentos.empty else pd.DataFrame()
+    df_investimentos = _sort_desc_by_id(df_investimentos)
+    df_aportes = _sort_desc_by_id(df_investimentos[df_investimentos["aporte"] > 0].copy()) if not df_investimentos.empty else pd.DataFrame()
+    df_rendimentos = _sort_desc_by_id(df_investimentos[df_investimentos["aporte"] == 0].copy()) if not df_investimentos.empty else pd.DataFrame()
+    df_retiradas = _sort_desc_by_id(df_investimentos[df_investimentos["aporte"] < 0].copy()) if not df_investimentos.empty else pd.DataFrame()
     patrimonio_atual = _patrimonio_atual(df_investimentos)
 
     tab_aporte, tab_rendimento, tab_retirada = st.tabs(["Aportes", "Rendimentos", "Retiradas"])
@@ -467,20 +470,19 @@ def _render_forms(df_investimentos: pd.DataFrame) -> None:
         categorias_r = categorias_invest.copy()
         if categoria_r not in categorias_r:
             categorias_r.append(categoria_r)
-        st.selectbox("Categoria", options=categorias_r, key="cad_inv_rend_categoria")
-        categoria_sel = str(st.session_state.get("cad_inv_rend_categoria", "Renda Fixa"))
-        df_rend = df_rendimentos[df_rendimentos["categoria"].astype(str) == categoria_sel] if not df_rendimentos.empty else pd.DataFrame()
-        options_r = [None] + (df_rend["id"].astype(int).tolist() if "id" in df_rend.columns else [])
+        options_r = [None] + (df_rendimentos["id"].astype(int).tolist() if "id" in df_rendimentos.columns else [])
         _ensure_selected_option("cad_inv_rend_selected_id", options_r)
         st.selectbox(
             "Registro de rendimento",
             options=options_r,
-            format_func=lambda x: _investimento_rendimento_label(df_rend, x),
+            format_func=lambda x: _investimento_rendimento_label(df_rendimentos, x),
             key="cad_inv_rend_selected_id",
         )
-        _sync_edit_state(df_rend, "cad_inv_rend_selected_id", "cad_inv_rend_last_selected_id", _set_invest_rendimento_fields)
+        _sync_edit_state(df_rendimentos, "cad_inv_rend_selected_id", "cad_inv_rend_last_selected_id", _set_invest_rendimento_fields)
 
         with st.form("investimentos_rendimento_form"):
+            st.selectbox("Categoria", options=categorias_r, key="cad_inv_rend_categoria")
+            categoria_sel = str(st.session_state.get("cad_inv_rend_categoria", "Renda Fixa"))
             col_ini, col_fim = st.columns(2)
             with col_ini:
                 data_inicio = st.date_input("Data inicial do recorte", key="cad_inv_rend_data_inicio")
@@ -488,7 +490,7 @@ def _render_forms(df_investimentos: pd.DataFrame) -> None:
                 data_fim = st.date_input("Data final do recorte", key="cad_inv_rend_data_fim")
             rendimento = st.number_input("Rendimento (R$)", value=0.0, step=1.0, key="cad_inv_rend_rendimento")
             selected_id = st.session_state.get("cad_inv_rend_selected_id")
-            selected_row = _get_row_by_id(df_rend, selected_id)
+            selected_row = _get_row_by_id(df_rendimentos, selected_id)
             rendimento_antigo = float(selected_row["rendimento"]) if selected_row is not None else 0.0
             patrimonio_preview = max(0.0, float(patrimonio_atual) - float(rendimento_antigo) + float(rendimento))
             st.number_input("Aporte", value=0.0, disabled=True, key="inv_rend_aporte_zero")
@@ -683,7 +685,7 @@ def _render_table(df: pd.DataFrame) -> None:
         show_empty_data("Nenhum investimento cadastrado.")
         return
 
-    tabela = df.copy()
+    tabela = _with_display_order(df)
     for col in ["data", "data_inicio", "data_fim"]:
         if col in tabela.columns:
             tabela[col] = pd.to_datetime(tabela[col], errors="coerce").dt.date

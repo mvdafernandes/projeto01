@@ -7,7 +7,7 @@ import plotly.express as px
 import streamlit as st
 
 from services.dashboard_service import DashboardService
-from UI.cadastros_ui import render_despesas_cadastro
+from UI.cadastros_ui import _with_display_order, render_despesas_cadastro
 from UI.components import format_currency, formatar_moeda, render_kpi, show_empty_data, titulo_secao
 
 
@@ -224,7 +224,7 @@ def pagina_despesas() -> None:
             st.dataframe(tabela_fixas.rename(columns={"subcat": "subcategoria"}), width="stretch", hide_index=True)
 
         titulo_secao(f"Registros ({esfera_label})")
-        df_tabela = df_scope.copy()
+        df_tabela = _with_display_order(df_scope)
         if "data" in df_tabela.columns:
             df_tabela["data"] = pd.to_datetime(df_tabela["data"], errors="coerce").dt.date
         if "valor" in df_tabela.columns:
@@ -237,7 +237,7 @@ def pagina_despesas() -> None:
         if "esfera_despesa" in df_tabela.columns:
             mapa_esfera = {"NEGOCIO": "Negócio", "PESSOAL": "Pessoal"}
             df_tabela["esfera_despesa"] = df_tabela["esfera_despesa"].map(lambda x: mapa_esfera.get(str(x).upper(), "Negócio"))
-        st.dataframe(df_tabela, width="stretch")
+        st.dataframe(df_tabela, width="stretch", hide_index=True)
 
     with tab_negocio:
         _render_aba_escopo(df_filtrado[df_filtrado["esfera_despesa"] == "NEGOCIO"].copy(), "Negócio", "negocio")

@@ -79,6 +79,25 @@ class RegressionTests(unittest.TestCase):
                 run_mock.return_value.stdout = "abcdef12\n"
                 self.assertEqual(build_info.get_build_id(), "abcdef12")
 
+    def test_visual_record_numbering_is_descending_and_gapless(self):
+        import pandas as pd
+        from UI.cadastros_ui import _display_record_number, _receita_label, _with_display_order
+
+        df = pd.DataFrame(
+            [
+                {"id": 20, "data": "2026-03-17", "valor": 100.0},
+                {"id": 18, "data": "2026-03-16", "valor": 90.0},
+                {"id": 17, "data": "2026-03-15", "valor": 80.0},
+            ]
+        )
+
+        ordered = _with_display_order(df)
+        self.assertEqual(ordered["registro"].tolist(), [1, 2, 3])
+        self.assertEqual(ordered["id"].tolist(), [20, 18, 17])
+        self.assertEqual(_display_record_number(df, 20), 1)
+        self.assertEqual(_display_record_number(df, 18), 2)
+        self.assertTrue(_receita_label(df, 18).startswith("Registro 2 |"))
+
 
 if __name__ == "__main__":
     unittest.main()

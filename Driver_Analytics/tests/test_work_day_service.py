@@ -317,6 +317,41 @@ class WorkDayServiceTests(unittest.TestCase):
         self.assertEqual(period["km_remunerado_periodo"], 80.0)
         self.assertEqual(period["km_nao_remunerado_periodo"], 20.0)
 
+    def test_periodo_historico_reseta_gap_do_hodometro(self):
+        self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-01",
+                "start_time": "2026-03-01T08:00:00+00:00",
+                "end_time": "2026-03-01T18:00:00+00:00",
+                "start_km": 1000.0,
+                "end_km": 1010.0,
+                "status": "closed",
+            }
+        )
+        self.service.work_km_periods_repo.inserir(
+            {
+                "start_date": "2026-03-02",
+                "end_date": "2026-03-10",
+                "km_total_periodo": 400.0,
+                "notes": "Historico",
+            }
+        )
+        current = self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-11",
+                "start_time": "2026-03-11T08:00:00+00:00",
+                "end_time": "2026-03-11T18:00:00+00:00",
+                "start_km": 1200.0,
+                "end_km": 1210.0,
+                "status": "closed",
+            }
+        )
+
+        self.service._recalculate_all()
+
+        updated = self.service.detalhar_jornada(int(current["id"]))
+        self.assertIsNone(updated["work_day"]["km_nao_remunerado_antes"])
+
     def test_migrar_receitas_legadas_agrega_por_dia_e_simula_jornada(self):
         self.service.receitas_repo = _FakeReceitasRepository(
             [
@@ -341,6 +376,48 @@ class WorkDayServiceTests(unittest.TestCase):
         self.assertAlmostEqual(earliest["km_remunerado"], 60.0)
         self.assertEqual(earliest["status"], "manual")
         self.assertEqual(earliest["worked_minutes_final"], 90)
+
+    def test_reparar_hodometro_historico_preenche_registros_anteriores(self):
+        self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-16",
+                "start_time": "2026-03-16T08:00:00+00:00",
+                "end_time": "2026-03-16T18:00:00+00:00",
+                "km_remunerado": 40.0,
+                "status": "manual",
+            }
+        )
+        middle = self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-17",
+                "start_time": "2026-03-17T08:00:00+00:00",
+                "end_time": "2026-03-17T18:00:00+00:00",
+                "km_remunerado": 30.0,
+                "status": "manual",
+            }
+        )
+        anchor = self.service.work_days_repo.inserir(
+            {
+                "work_date": "2026-03-18",
+                "start_time": "2026-03-18T08:00:00+00:00",
+                "end_time": "2026-03-18T18:00:00+00:00",
+                "start_km": 150000.0,
+                "end_km": 150020.0,
+                "km_remunerado": 20.0,
+                "status": "closed",
+            }
+        )
+
+        result = self.service.reparar_hodometro_historico(intervalo_padrao_km=10.0)
+
+        updated_middle = self.service.detalhar_jornada(int(middle["id"]))["work_day"]
+        updated_first = self.service.detalhar_jornada(1)["work_day"]
+        self.assertEqual(result["anchor_work_day_id"], int(anchor["id"]))
+        self.assertEqual(result["updated_rows"], 2)
+        self.assertEqual(updated_middle["end_km"], 149990.0)
+        self.assertEqual(updated_middle["start_km"], 149960.0)
+        self.assertEqual(updated_first["end_km"], 149950.0)
+        self.assertEqual(updated_first["start_km"], 149910.0)
 
 
 if __name__ == "__main__":

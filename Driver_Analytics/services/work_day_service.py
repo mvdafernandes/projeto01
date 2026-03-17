@@ -197,6 +197,20 @@ class WorkDayService:
         )
         self.events_repo.inserir(event.to_record())
 
+    def _has_km_period_between(self, previous_work_date: str | None, current_work_date: str | None) -> bool:
+        previous_ts = pd.to_datetime(previous_work_date, errors="coerce")
+        current_ts = pd.to_datetime(current_work_date, errors="coerce")
+        if pd.isna(previous_ts) or pd.isna(current_ts) or previous_ts >= current_ts:
+            return False
+        for row in self.work_km_periods_repo.listar_raw():
+            start_ts = pd.to_datetime(row.get("start_date"), errors="coerce")
+            end_ts = pd.to_datetime(row.get("end_date"), errors="coerce")
+            if pd.isna(start_ts) or pd.isna(end_ts):
+                continue
+            if max(previous_ts, start_ts) <= min(current_ts, end_ts):
+                return True
+        return False
+
     def _recalculate_all(self) -> None:
         rows = [self._serialize_day(row) for row in self.work_days_repo.listar_raw()]
         rows = [row for row in rows if row]
@@ -204,6 +218,7 @@ class WorkDayService:
             return
         rows.sort(key=lambda row: (row["work_date"], row.get("start_time") or "", row.get("created_at") or "", row["id"]))
         previous_closed_end_km: float | None = None
+        previous_closed_work_date: str | None = None
         for row in rows:
             start_time = row.get("start_time")
             end_time = row.get("end_time")
@@ -223,7 +238,12 @@ class WorkDayService:
                 if start_km is not None and end_km is not None
                 else self._to_float_or_none(row.get("km_remunerado"))
             )
-            km_gap = (start_km - previous_closed_end_km) if start_km is not None and previous_closed_end_km is not None else None
+            has_historical_anchor = self._has_km_period_between(previous_closed_work_date, row.get("work_date"))
+            km_gap = (
+                start_km - previous_closed_end_km
+                if start_km is not None and previous_closed_end_km is not None and not has_historical_anchor
+                else None
+            )
 
             current = dict(row)
             current["worked_minutes_calculated"] = worked_calculated
@@ -243,6 +263,7 @@ class WorkDayService:
 
             if current["status"] in {"closed", "adjusted", "manual"} and end_km is not None:
                 previous_closed_end_km = end_km
+                previous_closed_work_date = str(row.get("work_date") or "")
 
     def listar_jornadas(self) -> list[dict]:
         rows = [self._serialize_day(row) for row in self.work_days_repo.listar_raw()]
@@ -340,6 +361,102 @@ class WorkDayService:
 
     def deletar_km_periodo(self, item_id: int) -> None:
         self.work_km_periods_repo.deletar(int(item_id))
+
+    def reparar_hodometro_historico(self, intervalo_padrao_km: float = 10.0, notes: str = "") -> dict[str, Any]:
+        intervalo = float(max(0.0, self._to_float_or_none(intervalo_padrao_km) or 0.0))
+        jornadas = self.listar_jornadas()
+        if not jornadas:
+            raise ValueError("Nenhuma jornada disponível para reparo.")
+
+        jornadas_ordenadas = sorted(
+            jornadas,
+            key=lambda row: (row["work_date"], row.get("start_time") or "", row.get("created_at") or "", row["id"]),
+        )
+        anchor_index = None
+        anchor_start_km = None
+        for idx in range(len(jornadas_ordenadas) - 1, -1, -1):
+            start_km = self._to_float_or_none(jornadas_ordenadas[idx].get("start_km"))
+            if start_km is not None:
+                anchor_index = idx
+                anchor_start_km = start_km
+                break
+        if anchor_index is None or anchor_start_km is None:
+            raise ValueError("Nenhuma jornada com KM inicial válido foi encontrada para servir de âncora.")
+        if anchor_index == 0:
+            return {
+                "anchor_work_day_id": int(jornadas_ordenadas[anchor_index]["id"]),
+                "anchor_work_date": str(jornadas_ordenadas[anchor_index]["work_date"]),
+                "updated_rows": 0,
+                "intervalo_padrao_km": intervalo,
+            }
+
+        next_start_km = float(anchor_start_km)
+        updated_rows = 0
+        event_notes = self._clean_text(notes) or "Reparo historico automatico de hodometro."
+
+        for idx in range(anchor_index - 1, -1, -1):
+            row = jornadas_ordenadas[idx]
+            row_id = int(row["id"])
+            old_value = self._serialize_day(self.work_days_repo.buscar_por_id(row_id))
+            if not old_value:
+                continue
+            km_remunerado = self._to_float_or_none(old_value.get("km_remunerado"))
+            if km_remunerado is None:
+                start_existing = self._to_float_or_none(old_value.get("start_km"))
+                end_existing = self._to_float_or_none(old_value.get("end_km"))
+                if start_existing is not None and end_existing is not None:
+                    km_remunerado = float(max(end_existing - start_existing, 0.0))
+                else:
+                    km_remunerado = 0.0
+
+            estimated_end_km = float(next_start_km - intervalo)
+            estimated_start_km = float(estimated_end_km - km_remunerado)
+
+            payload: dict[str, Any] = {}
+            start_existing = self._to_float_or_none(old_value.get("start_km"))
+            end_existing = self._to_float_or_none(old_value.get("end_km"))
+            if start_existing is None:
+                payload["start_km"] = estimated_start_km
+            if end_existing is None:
+                payload["end_km"] = estimated_end_km
+
+            next_start_km = float(start_existing if start_existing is not None else estimated_start_km)
+
+            if not payload:
+                continue
+
+            payload["is_manually_adjusted"] = True
+            existing_notes = self._clean_text(old_value.get("notes", ""))
+            payload["notes"] = existing_notes or event_notes
+            self.work_days_repo.atualizar(row_id, payload)
+            updated_rows += 1
+
+        self._recalculate_all()
+
+        for idx in range(anchor_index - 1, -1, -1):
+            row = jornadas_ordenadas[idx]
+            row_id = int(row["id"])
+            refreshed = self._serialize_day(self.work_days_repo.buscar_por_id(row_id))
+            original = row
+            if not refreshed:
+                continue
+            original_start = self._to_float_or_none(original.get("start_km"))
+            original_end = self._to_float_or_none(original.get("end_km"))
+            if original_start is None or original_end is None:
+                self._write_event(
+                    row_id,
+                    "manual_edit",
+                    old_value=original,
+                    new_value=refreshed,
+                    notes=event_notes,
+                )
+
+        return {
+            "anchor_work_day_id": int(jornadas_ordenadas[anchor_index]["id"]),
+            "anchor_work_date": str(jornadas_ordenadas[anchor_index]["work_date"]),
+            "updated_rows": int(updated_rows),
+            "intervalo_padrao_km": float(intervalo),
+        }
 
     def detalhar_jornada(self, work_day_id: int) -> dict:
         row = self._serialize_day(self.work_days_repo.buscar_por_id(int(work_day_id)))

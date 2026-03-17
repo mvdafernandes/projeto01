@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from services.dashboard_service import DashboardService
-from UI.cadastros_ui import render_receitas_cadastro
+from UI.cadastros_ui import _with_display_order, render_receitas_cadastro
 from UI.components import format_currency, format_percent, formatar_moeda, render_kpi, show_empty_data, titulo_secao
 
 
@@ -160,7 +160,7 @@ def pagina_receitas() -> None:
         show_empty_data("Sem dados para evolução semanal, mensal e anual.")
 
     titulo_secao("Registros")
-    df_tabela = df_filtrado.copy()
+    df_tabela = _with_display_order(df_filtrado)
     if "data" in df_tabela.columns:
         df_tabela["data"] = pd.to_datetime(df_tabela["data"], errors="coerce").dt.date
     if "valor" in df_tabela.columns:
@@ -168,7 +168,7 @@ def pagina_receitas() -> None:
     for drop_col in ["km", "km_rodado_total", "tempo trabalhado"]:
         if drop_col in df_tabela.columns:
             df_tabela = df_tabela.drop(columns=[drop_col])
-    st.dataframe(df_tabela, width="stretch")
+    st.dataframe(df_tabela, width="stretch", hide_index=True)
 
     titulo_secao("Remuneração (CPF)")
     st.caption(
