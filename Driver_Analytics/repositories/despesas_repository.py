@@ -135,24 +135,30 @@ class DespesasRepository(BaseRepository):
                 "recorrencia_serie_id": recorrencia_serie_id,
             }
         )
-        payload = self._with_user_id(model.to_record())
+        payload = model.to_record()
 
         client = self._supabase()
         user_id = self._require_user_id()
         if client:
+            first_exc: Exception | None = None
+            second_exc: Exception | None = None
             try:
                 query = client.table(self.table_name).update(payload).eq("id", int(item_id)).eq("user_id", int(user_id))
                 query.execute()
-            except Exception:
+                return
+            except Exception as exc:
+                first_exc = exc
                 try:
                     query = client.table(self.table_name).update(self._legacy_payload(payload)).eq("id", int(item_id)).eq(
                         "user_id", int(user_id)
                     )
                     query.execute()
                     return
-                except Exception:
-                    pass
-        raise RuntimeError("Falha ao atualizar despesa no Supabase.")
+                except Exception as exc:
+                    second_exc = exc
+            detalhe = second_exc or first_exc
+            raise RuntimeError(f"Falha ao atualizar despesa no Supabase: {detalhe}")
+        raise RuntimeError("Falha ao atualizar despesa no Supabase: cliente remoto indisponível.")
 
     def deletar(self, item_id: int) -> None:
         """Delete despesa by id."""
