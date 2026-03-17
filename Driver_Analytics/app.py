@@ -31,14 +31,15 @@ username = get_logged_username()
 if username:
     user_id = get_logged_user_id()
     st.sidebar.markdown(f"**Usuário logado:** `{username}` | id `{user_id}`")
+st.sidebar.caption("build 1985d35")
 
 render_logout_button()
 
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Jornada", "Cadastros", "Receitas", "Despesas", "Investimentos"])
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Jornada", "Receitas", "Despesas", "Investimentos", "Backup"])
 render_hero_banner(username, menu)
 
-if menu == "Cadastros":
-    st.sidebar.success("CRUD centralizado em Cadastros")
+if menu == "Backup":
+    st.sidebar.success("Exporte e restaure seus dados com segurança")
 
 if menu == "Dashboard":
     from UI.dashboard_ui import pagina_dashboard
@@ -48,10 +49,10 @@ elif menu == "Jornada":
     from UI.jornada_ui import pagina_jornada
 
     pagina_jornada()
-elif menu == "Cadastros":
-    from UI.cadastros_ui import pagina_cadastros
+elif menu == "Backup":
+    from UI.cadastros_ui import pagina_backup
 
-    pagina_cadastros()
+    pagina_backup()
 elif menu == "Receitas":
     from UI.receitas_ui import pagina_receitas
 
