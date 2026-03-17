@@ -7,6 +7,7 @@ import plotly.express as px
 import streamlit as st
 
 from services.dashboard_service import DashboardService
+from UI.cadastros_ui import render_despesas_cadastro
 from UI.components import format_currency, formatar_moeda, render_kpi, show_empty_data, titulo_secao
 
 
@@ -41,7 +42,6 @@ def _intervalo_referencia(modo_periodo: str, ano: int | None, mes: int | None, d
 
 def pagina_despesas() -> None:
     st.header("Despesas")
-    st.info("Cadastros e edições agora ficam na página Cadastros.")
 
     df = service.listar_despesas()
     if "data" in df.columns:
@@ -65,36 +65,41 @@ def pagina_despesas() -> None:
         if not df_filtrado.empty and "data" in df_filtrado.columns:
             df_filtrado = df_filtrado[(df_filtrado["data"].dt.year == int(ano)) & (df_filtrado["data"].dt.month == int(mes))]
     else:
+        titulo_resumo = "Resumo do Período"
         if df_filtrado.empty or "data" not in df_filtrado.columns or df_filtrado["data"].dropna().empty:
             show_empty_data("Sem dados para aplicar filtro personalizado.")
-            return
-
-        min_data = df_filtrado["data"].min().date()
-        max_data = df_filtrado["data"].max().date()
-        col1, col2 = st.columns(2)
-        with col1:
-            data_inicial = st.date_input(
-                "Data inicial",
-                value=min_data,
-                min_value=min_data,
-                max_value=max_data,
-                key="desp_data_inicio",
-            )
-        with col2:
-            data_final = st.date_input(
-                "Data final",
-                value=max_data,
-                min_value=min_data,
-                max_value=max_data,
-                key="desp_data_fim",
-            )
-        if pd.to_datetime(data_inicial) > pd.to_datetime(data_final):
-            st.warning("A data inicial não pode ser maior que a data final.")
-            return
-        inicio = pd.to_datetime(data_inicial)
-        fim = pd.to_datetime(data_final) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-        df_filtrado = df_filtrado[(df_filtrado["data"] >= inicio) & (df_filtrado["data"] <= fim)]
-        titulo_resumo = "Resumo do Período"
+            df_filtrado = pd.DataFrame(columns=df.columns)
+            inicio = None
+            fim = None
+        else:
+            min_data = df_filtrado["data"].min().date()
+            max_data = df_filtrado["data"].max().date()
+            col1, col2 = st.columns(2)
+            with col1:
+                data_inicial = st.date_input(
+                    "Data inicial",
+                    value=min_data,
+                    min_value=min_data,
+                    max_value=max_data,
+                    key="desp_data_inicio",
+                )
+            with col2:
+                data_final = st.date_input(
+                    "Data final",
+                    value=max_data,
+                    min_value=min_data,
+                    max_value=max_data,
+                    key="desp_data_fim",
+                )
+            if pd.to_datetime(data_inicial) > pd.to_datetime(data_final):
+                st.warning("A data inicial não pode ser maior que a data final.")
+                df_filtrado = pd.DataFrame(columns=df.columns)
+                inicio = None
+                fim = None
+            else:
+                inicio = pd.to_datetime(data_inicial)
+                fim = pd.to_datetime(data_final) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+                df_filtrado = df_filtrado[(df_filtrado["data"] >= inicio) & (df_filtrado["data"] <= fim)]
 
     titulo_secao(titulo_resumo)
     total = service.metrics.despesa_total(df_filtrado)
@@ -239,3 +244,5 @@ def pagina_despesas() -> None:
 
     with tab_pessoal:
         _render_aba_escopo(df_filtrado[df_filtrado["esfera_despesa"] == "PESSOAL"].copy(), "Pessoal", "pessoal")
+
+    render_despesas_cadastro()

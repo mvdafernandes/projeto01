@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from services.dashboard_service import DashboardService
+from UI.cadastros_ui import render_receitas_cadastro
 from UI.components import format_currency, format_percent, formatar_moeda, render_kpi, show_empty_data, titulo_secao
 
 
@@ -22,7 +23,6 @@ def _format_hms(total_seconds: float) -> str:
 
 def pagina_receitas() -> None:
     st.header("Receitas")
-    st.info("Cadastros e edições agora ficam na página Cadastros.")
 
     df = service.listar_receitas()
     if "data" in df.columns:
@@ -43,36 +43,41 @@ def pagina_receitas() -> None:
         if not df_filtrado.empty and "data" in df_filtrado.columns:
             df_filtrado = df_filtrado[(df_filtrado["data"].dt.year == int(ano)) & (df_filtrado["data"].dt.month == int(mes))]
     else:
+        titulo_resumo = "Resumo do Período"
         if df_filtrado.empty or "data" not in df_filtrado.columns or df_filtrado["data"].dropna().empty:
             show_empty_data("Sem dados para aplicar filtro personalizado.")
-            return
-
-        min_data = df_filtrado["data"].min().date()
-        max_data = df_filtrado["data"].max().date()
-        col1, col2 = st.columns(2)
-        with col1:
-            data_inicial = st.date_input(
-                "Data inicial",
-                value=min_data,
-                min_value=min_data,
-                max_value=max_data,
-                key="rec_data_inicio",
-            )
-        with col2:
-            data_final = st.date_input(
-                "Data final",
-                value=max_data,
-                min_value=min_data,
-                max_value=max_data,
-                key="rec_data_fim",
-            )
-        if pd.to_datetime(data_inicial) > pd.to_datetime(data_final):
-            st.warning("A data inicial não pode ser maior que a data final.")
-            return
-        inicio = pd.to_datetime(data_inicial)
-        fim = pd.to_datetime(data_final) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-        df_filtrado = df_filtrado[(df_filtrado["data"] >= inicio) & (df_filtrado["data"] <= fim)]
-        titulo_resumo = "Resumo do Período"
+            df_filtrado = pd.DataFrame(columns=df.columns)
+            inicio = None
+            fim = None
+        else:
+            min_data = df_filtrado["data"].min().date()
+            max_data = df_filtrado["data"].max().date()
+            col1, col2 = st.columns(2)
+            with col1:
+                data_inicial = st.date_input(
+                    "Data inicial",
+                    value=min_data,
+                    min_value=min_data,
+                    max_value=max_data,
+                    key="rec_data_inicio",
+                )
+            with col2:
+                data_final = st.date_input(
+                    "Data final",
+                    value=max_data,
+                    min_value=min_data,
+                    max_value=max_data,
+                    key="rec_data_fim",
+                )
+            if pd.to_datetime(data_inicial) > pd.to_datetime(data_final):
+                st.warning("A data inicial não pode ser maior que a data final.")
+                df_filtrado = pd.DataFrame(columns=df.columns)
+                inicio = None
+                fim = None
+            else:
+                inicio = pd.to_datetime(data_inicial)
+                fim = pd.to_datetime(data_final) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+                df_filtrado = df_filtrado[(df_filtrado["data"] >= inicio) & (df_filtrado["data"] <= fim)]
 
     titulo_secao(titulo_resumo)
     total = service.metrics.receita_total(df_filtrado)
@@ -170,9 +175,11 @@ def pagina_receitas() -> None:
             (df_despesas["data"].dt.year == int(ano)) & (df_despesas["data"].dt.month == int(mes))
         ].copy() if not df_despesas.empty else pd.DataFrame()
     else:
-        despesas_filtradas = df_despesas[
-            (df_despesas["data"] >= inicio) & (df_despesas["data"] <= fim)
-        ].copy() if not df_despesas.empty else pd.DataFrame()
+        despesas_filtradas = (
+            df_despesas[(df_despesas["data"] >= inicio) & (df_despesas["data"] <= fim)].copy()
+            if not df_despesas.empty and inicio is not None and fim is not None
+            else pd.DataFrame()
+        )
 
     if "esfera_despesa" not in despesas_filtradas.columns:
         despesas_filtradas["esfera_despesa"] = "NEGOCIO"
@@ -187,7 +194,7 @@ def pagina_receitas() -> None:
         if modo_periodo == "Mensal":
             df_inv = df_inv[(df_inv[data_inv_col].dt.year == int(ano)) & (df_inv[data_inv_col].dt.month == int(mes))]
         else:
-            df_inv = df_inv[(df_inv[data_inv_col] >= inicio) & (df_inv[data_inv_col] <= fim)]
+            df_inv = df_inv[(df_inv[data_inv_col] >= inicio) & (df_inv[data_inv_col] <= fim)] if inicio is not None and fim is not None else pd.DataFrame()
         df_inv["aporte"] = pd.to_numeric(df_inv.get("aporte"), errors="coerce").fillna(0.0)
 
     despesa_negocio_total = service.metrics.despesa_total(despesas_negocio)
@@ -213,3 +220,5 @@ def pagina_receitas() -> None:
         render_kpi("Aportes", format_currency(aportes))
     with col_r6:
         render_kpi("Retiradas", format_currency(retiradas))
+
+    render_receitas_cadastro()
