@@ -98,6 +98,17 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(_display_record_number(df, 18), 2)
         self.assertTrue(_receita_label(df, 18).startswith("Registro 2 |"))
 
+    def test_function_search_path_migration_targets_flagged_functions(self):
+        migration_path = PROJECT_ROOT / "sql" / "migrations" / "20260318100000__harden_function_search_paths.sql"
+        source = migration_path.read_text(encoding="utf-8")
+
+        self.assertIn("('app', 'current_user_id')", source)
+        self.assertIn("('public', 'app_current_user_id')", source)
+        self.assertIn("('public', 'fn_investimentos_defaults')", source)
+        self.assertIn("('public', 'set_work_days_updated_at')", source)
+        self.assertIn("('public', 'set_work_km_periods_updated_at')", source)
+        self.assertIn("set search_path = ''", source)
+
 
 if __name__ == "__main__":
     unittest.main()
