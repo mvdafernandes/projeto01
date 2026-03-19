@@ -109,6 +109,47 @@ class RegressionTests(unittest.TestCase):
         self.assertIn("('public', 'set_work_km_periods_updated_at')", source)
         self.assertIn("set search_path = ''", source)
 
+    def test_rls_policy_cleanup_migration_drops_redundant_service_policies(self):
+        migration_path = PROJECT_ROOT / "sql" / "migrations" / "20260319100000__drop_redundant_service_policies.sql"
+        source = migration_path.read_text(encoding="utf-8")
+
+        self.assertIn("drop policy if exists usuarios_service_all on public.usuarios", source)
+        self.assertIn("drop policy if exists auth_sessions_service_all on public.auth_sessions", source)
+
+    def test_duplicate_investimentos_index_migration_keeps_explicit_index_name(self):
+        migration_path = PROJECT_ROOT / "sql" / "migrations" / "20260319101000__drop_duplicate_investimentos_index.sql"
+        source = migration_path.read_text(encoding="utf-8")
+
+        self.assertIn("drop index if exists public.idx_investimentos_tipo", source)
+        self.assertNotIn("idx_investimentos_tipo_movimentacao", source)
+
+    def test_unused_index_cleanup_migration_targets_only_redundant_indexes(self):
+        migration_path = PROJECT_ROOT / "sql" / "migrations" / "20260319102000__drop_redundant_unused_indexes.sql"
+        source = migration_path.read_text(encoding="utf-8")
+
+        for index_name in [
+            "idx_receitas_user_id_data",
+            "idx_despesas_user_id_data",
+            "idx_investimentos_user_id_data",
+            "idx_investimentos_user_id_data_fim",
+            "idx_work_km_periods_user_id",
+            "idx_categorias_despesas_user_id",
+            "idx_controle_km_data_inicio",
+            "idx_controle_km_data_fim",
+            "idx_controle_litros_data",
+        ]:
+            self.assertIn(index_name, source)
+
+    def test_backend_only_work_tables_gain_explicit_deny_policies(self):
+        migration_path = PROJECT_ROOT / "sql" / "migrations" / "20260319103000__explicit_backend_only_work_table_policies.sql"
+        source = migration_path.read_text(encoding="utf-8")
+
+        self.assertIn("create policy work_days_backend_only", source)
+        self.assertIn("create policy work_day_events_backend_only", source)
+        self.assertIn("create policy work_km_periods_backend_only", source)
+        self.assertIn("using (false)", source)
+        self.assertIn("with check (false)", source)
+
 
 if __name__ == "__main__":
     unittest.main()
