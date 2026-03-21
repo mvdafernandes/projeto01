@@ -399,6 +399,11 @@ class BackupService:
             self.controle_litros_repo.inserir(
                 data=self._safe_date_str(row.get("data"), default=""),
                 litros=self._safe_float(row.get("litros"), 0.0),
+                odometro=self._safe_float(row.get("odometro"), 0.0) if str(row.get("odometro", "")).strip() else None,
+                valor_total=self._safe_float(row.get("valor_total"), 0.0),
+                tanque_cheio=str(row.get("tanque_cheio", "")).strip().lower() in {"1", "true", "t", "yes", "sim"},
+                tipo_combustivel=self._safe_str(row.get("tipo_combustivel"), ""),
+                observacao=self._safe_str(row.get("observacao"), ""),
             )
 
         self.investimentos_repo.recalcular_total_aportado()

@@ -19,11 +19,13 @@ class DashboardServiceRulesTests(unittest.TestCase):
         self.service.work_days_repo = MagicMock()
         self.service.work_km_periods_repo = MagicMock()
         self.service.controle_km_repo = MagicMock()
+        self.service.controle_litros_repo = MagicMock()
         self.service.categorias_repo = MagicMock()
         self.service.categorias_repo.listar.return_value = pd.DataFrame(columns=["id", "nome"])
         self.service.work_days_repo.listar.return_value = pd.DataFrame()
         self.service.work_km_periods_repo.listar.return_value = pd.DataFrame()
         self.service.controle_km_repo.listar.return_value = pd.DataFrame()
+        self.service.controle_litros_repo.listar.return_value = pd.DataFrame()
 
     def test_criar_receita_bloqueia_duplicada(self):
         self.service.receitas_repo.listar.return_value = pd.DataFrame(
@@ -230,6 +232,37 @@ class DashboardServiceRulesTests(unittest.TestCase):
         self.assertEqual(snapshot["km_remunerado"], 20.0)
         self.assertEqual(snapshot["km_total"], 430.0)
         self.assertEqual(snapshot["km_nao_remunerado"], 410.0)
+
+    def test_fuel_consumption_snapshot_usa_trechos_fechados_com_parciais(self):
+        self.service.controle_litros_repo.listar.return_value = pd.DataFrame(
+            [
+                {"id": 1, "data": "2026-03-01", "odometro": 10000.0, "litros": 40.0, "tanque_cheio": True},
+                {"id": 2, "data": "2026-03-03", "odometro": 10120.0, "litros": 10.0, "tanque_cheio": False},
+                {"id": 3, "data": "2026-03-05", "odometro": 10250.0, "litros": 20.0, "tanque_cheio": False},
+                {"id": 4, "data": "2026-03-07", "odometro": 10400.0, "litros": 25.0, "tanque_cheio": True},
+            ]
+        )
+
+        snapshot = self.service.fuel_consumption_snapshot("2026-03-01", "2026-03-07")
+
+        self.assertEqual(snapshot["segment_count"], 1)
+        self.assertAlmostEqual(snapshot["km_trechos_fechados"], 400.0)
+        self.assertAlmostEqual(snapshot["litros_trechos_fechados"], 55.0)
+        self.assertAlmostEqual(snapshot["consumo_km_l"], 400.0 / 55.0)
+        self.assertAlmostEqual(snapshot["litros_total_abastecidos"], 95.0)
+
+    def test_fuel_consumption_snapshot_ignora_primeiro_abastecimento_isolado(self):
+        self.service.controle_litros_repo.listar.return_value = pd.DataFrame(
+            [
+                {"id": 1, "data": "2026-03-01", "odometro": 10000.0, "litros": 40.0, "tanque_cheio": True},
+                {"id": 2, "data": "2026-03-03", "odometro": 10120.0, "litros": 10.0, "tanque_cheio": False},
+            ]
+        )
+
+        snapshot = self.service.fuel_consumption_snapshot("2026-03-01", "2026-03-03")
+
+        self.assertEqual(snapshot["segment_count"], 0)
+        self.assertEqual(snapshot["consumo_km_l"], 0.0)
 
 
 if __name__ == "__main__":

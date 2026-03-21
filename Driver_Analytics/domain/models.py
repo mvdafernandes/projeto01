@@ -134,12 +134,27 @@ class ControleLitros:
 
     data: str
     litros: float
+    odometro: float | None = None
+    valor_total: float = 0.0
+    tanque_cheio: bool = False
+    tipo_combustivel: str = ""
+    observacao: str = ""
 
     @classmethod
     def from_raw(cls, payload: dict) -> "ControleLitros":
+        raw_tanque_cheio = payload.get("tanque_cheio", False)
+        if isinstance(raw_tanque_cheio, str):
+            tanque_cheio = raw_tanque_cheio.strip().lower() in {"1", "true", "t", "sim", "yes", "y"}
+        else:
+            tanque_cheio = bool(raw_tanque_cheio)
         return cls(
             data=to_iso_date(payload.get("data", ""), fallback=""),
             litros=safe_float(payload.get("litros", 0.0), 0.0),
+            odometro=safe_float(payload.get("odometro"), 0.0) if payload.get("odometro") not in (None, "") else None,
+            valor_total=safe_float(payload.get("valor_total", 0.0), 0.0),
+            tanque_cheio=tanque_cheio,
+            tipo_combustivel=sanitize_nullable_text(payload.get("tipo_combustivel", "")),
+            observacao=sanitize_nullable_text(payload.get("observacao", "")),
         )
 
     def to_record(self) -> dict:

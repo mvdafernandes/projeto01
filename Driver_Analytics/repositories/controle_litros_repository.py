@@ -12,15 +12,34 @@ class ControleLitrosRepository(BaseRepository):
     """Data access for controle_litros table."""
 
     table_name = "controle_litros"
-    columns = ["id", "data", "litros"]
-    numeric_columns = ["id", "litros"]
+    columns = ["id", "data", "litros", "odometro", "valor_total", "tanque_cheio", "tipo_combustivel", "observacao"]
+    numeric_columns = ["id", "litros", "odometro", "valor_total"]
 
     def listar(self) -> pd.DataFrame:
         data = self._list_remote_rows()
         return self._normalize(pd.DataFrame(data))
 
-    def inserir(self, data: str, litros: float) -> None:
-        model = ControleLitros.from_raw({"data": data, "litros": litros})
+    def inserir(
+        self,
+        data: str,
+        litros: float,
+        odometro: float | None = None,
+        valor_total: float = 0.0,
+        tanque_cheio: bool = False,
+        tipo_combustivel: str = "",
+        observacao: str = "",
+    ) -> None:
+        model = ControleLitros.from_raw(
+            {
+                "data": data,
+                "litros": litros,
+                "odometro": odometro,
+                "valor_total": valor_total,
+                "tanque_cheio": tanque_cheio,
+                "tipo_combustivel": tipo_combustivel,
+                "observacao": observacao,
+            }
+        )
         payload = self._with_user_id(model.to_record())
 
         client = self._supabase()
@@ -32,8 +51,28 @@ class ControleLitrosRepository(BaseRepository):
                 pass
         raise RuntimeError("Supabase remoto indisponivel.")
 
-    def atualizar(self, item_id: int, data: str, litros: float) -> None:
-        model = ControleLitros.from_raw({"data": data, "litros": litros})
+    def atualizar(
+        self,
+        item_id: int,
+        data: str,
+        litros: float,
+        odometro: float | None = None,
+        valor_total: float = 0.0,
+        tanque_cheio: bool = False,
+        tipo_combustivel: str = "",
+        observacao: str = "",
+    ) -> None:
+        model = ControleLitros.from_raw(
+            {
+                "data": data,
+                "litros": litros,
+                "odometro": odometro,
+                "valor_total": valor_total,
+                "tanque_cheio": tanque_cheio,
+                "tipo_combustivel": tipo_combustivel,
+                "observacao": observacao,
+            }
+        )
         payload = self._with_user_id(model.to_record())
 
         client = self._supabase()

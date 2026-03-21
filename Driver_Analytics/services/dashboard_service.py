@@ -60,6 +60,12 @@ class DashboardService:
             return 0
 
     @staticmethod
+    def _to_bool(value) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "t", "sim", "yes", "y"}
+        return bool(value)
+
+    @staticmethod
     def _normalize_title(value: str) -> str:
         return " ".join(str(value).strip().split()).title()
 
@@ -245,6 +251,123 @@ class DashboardService:
     def listar_controle_litros(self) -> pd.DataFrame:
         return self.controle_litros_repo.listar()
 
+    def fuel_consumption_snapshot(self, start_date, end_date) -> dict[str, float | int]:
+        start_ts = pd.to_datetime(start_date, errors="coerce")
+        end_ts = pd.to_datetime(end_date, errors="coerce")
+        if pd.isna(start_ts) or pd.isna(end_ts):
+            return {
+                "segment_count": 0,
+                "litros_total_abastecidos": 0.0,
+                "litros_trechos_fechados": 0.0,
+                "km_trechos_fechados": 0.0,
+                "consumo_km_l": 0.0,
+            }
+
+        df = self.listar_controle_litros()
+        if df.empty:
+            return {
+                "segment_count": 0,
+                "litros_total_abastecidos": 0.0,
+                "litros_trechos_fechados": 0.0,
+                "km_trechos_fechados": 0.0,
+                "consumo_km_l": 0.0,
+            }
+
+        work = df.copy()
+        work["data"] = pd.to_datetime(work.get("data"), errors="coerce")
+        work = work.dropna(subset=["data"])
+        work = work[work["data"] <= end_ts]
+        if work.empty:
+            return {
+                "segment_count": 0,
+                "litros_total_abastecidos": 0.0,
+                "litros_trechos_fechados": 0.0,
+                "km_trechos_fechados": 0.0,
+                "consumo_km_l": 0.0,
+            }
+
+        work["litros"] = pd.to_numeric(work.get("litros"), errors="coerce").fillna(0.0)
+        work["odometro"] = pd.to_numeric(work.get("odometro"), errors="coerce")
+        work["tanque_cheio"] = work.get("tanque_cheio", False).apply(self._to_bool)
+        if "id" not in work.columns:
+            work["id"] = range(1, len(work) + 1)
+        work = work.sort_values(by=["data", "id"], ascending=[True, True]).reset_index(drop=True)
+
+        litros_total_abastecidos = float(
+            work[(work["data"] >= start_ts) & (work["data"] <= end_ts)]["litros"].sum()
+        )
+
+        segmentos: list[dict] = []
+        ancora: dict | None = None
+        litros_acumulados = 0.0
+
+        for row in work.to_dict(orient="records"):
+            if not bool(row.get("tanque_cheio", False)):
+                if ancora is not None:
+                    litros_acumulados += self._to_float(row.get("litros"))
+                continue
+
+            odometro_atual = pd.to_numeric(row.get("odometro"), errors="coerce")
+            litros_atual = self._to_float(row.get("litros"))
+
+            if ancora is None:
+                if pd.notna(odometro_atual):
+                    ancora = dict(row)
+                    litros_acumulados = 0.0
+                continue
+
+            litros_consumidos = float(litros_acumulados + litros_atual)
+            odometro_ancora = pd.to_numeric(ancora.get("odometro"), errors="coerce")
+            if pd.notna(odometro_ancora) and pd.notna(odometro_atual):
+                km_rodados = float(odometro_atual - odometro_ancora)
+                if km_rodados >= 0 and litros_consumidos > 0:
+                    segmentos.append(
+                        {
+                            "start_date": ancora.get("data"),
+                            "end_date": row.get("data"),
+                            "km_rodados": km_rodados,
+                            "litros_consumidos": litros_consumidos,
+                            "km_litro": km_rodados / litros_consumidos,
+                        }
+                    )
+
+            if pd.notna(odometro_atual):
+                ancora = dict(row)
+            else:
+                ancora = None
+            litros_acumulados = 0.0
+
+        if not segmentos:
+            return {
+                "segment_count": 0,
+                "litros_total_abastecidos": litros_total_abastecidos,
+                "litros_trechos_fechados": 0.0,
+                "km_trechos_fechados": 0.0,
+                "consumo_km_l": 0.0,
+            }
+
+        seg_df = pd.DataFrame(segmentos)
+        seg_df["end_date"] = pd.to_datetime(seg_df["end_date"], errors="coerce")
+        seg_df = seg_df[(seg_df["end_date"] >= start_ts) & (seg_df["end_date"] <= end_ts)]
+        if seg_df.empty:
+            return {
+                "segment_count": 0,
+                "litros_total_abastecidos": litros_total_abastecidos,
+                "litros_trechos_fechados": 0.0,
+                "km_trechos_fechados": 0.0,
+                "consumo_km_l": 0.0,
+            }
+
+        km_trechos = float(pd.to_numeric(seg_df["km_rodados"], errors="coerce").fillna(0.0).sum())
+        litros_trechos = float(pd.to_numeric(seg_df["litros_consumidos"], errors="coerce").fillna(0.0).sum())
+        return {
+            "segment_count": int(len(seg_df)),
+            "litros_total_abastecidos": litros_total_abastecidos,
+            "litros_trechos_fechados": litros_trechos,
+            "km_trechos_fechados": km_trechos,
+            "consumo_km_l": float(km_trechos / litros_trechos) if litros_trechos > 0 else 0.0,
+        }
+
     def listar_investimentos(self) -> pd.DataFrame:
         return self.investimentos_repo.listar()
 
@@ -368,11 +491,47 @@ class DashboardService:
     def deletar_controle_km(self, item_id: int) -> None:
         self.controle_km_repo.deletar(item_id)
 
-    def criar_controle_litros(self, data: str, litros: float) -> None:
-        self.controle_litros_repo.inserir(data, litros)
+    def criar_controle_litros(
+        self,
+        data: str,
+        litros: float,
+        odometro: float | None = None,
+        valor_total: float = 0.0,
+        tanque_cheio: bool = False,
+        tipo_combustivel: str = "",
+        observacao: str = "",
+    ) -> None:
+        self.controle_litros_repo.inserir(
+            data,
+            litros,
+            odometro=odometro,
+            valor_total=valor_total,
+            tanque_cheio=tanque_cheio,
+            tipo_combustivel=tipo_combustivel,
+            observacao=observacao,
+        )
 
-    def atualizar_controle_litros(self, item_id: int, data: str, litros: float) -> None:
-        self.controle_litros_repo.atualizar(item_id, data, litros)
+    def atualizar_controle_litros(
+        self,
+        item_id: int,
+        data: str,
+        litros: float,
+        odometro: float | None = None,
+        valor_total: float = 0.0,
+        tanque_cheio: bool = False,
+        tipo_combustivel: str = "",
+        observacao: str = "",
+    ) -> None:
+        self.controle_litros_repo.atualizar(
+            item_id,
+            data,
+            litros,
+            odometro=odometro,
+            valor_total=valor_total,
+            tanque_cheio=tanque_cheio,
+            tipo_combustivel=tipo_combustivel,
+            observacao=observacao,
+        )
 
     def deletar_controle_litros(self, item_id: int) -> None:
         self.controle_litros_repo.deletar(item_id)

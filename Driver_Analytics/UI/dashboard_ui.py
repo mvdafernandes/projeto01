@@ -7,6 +7,7 @@ import plotly.express as px
 import streamlit as st
 
 from services.dashboard_service import DashboardService
+from UI.cadastros_ui import _ensure_selected_option, _get_row_by_id, _reset_fields, _with_display_order
 from UI.components import (
     format_currency,
     format_percent,
@@ -21,6 +22,7 @@ from UI.components import (
 
 
 service = DashboardService()
+FUEL_TYPES = ["Flex", "Gasolina", "Etanol", "Diesel", "GNV", "Outro"]
 
 
 def _set_dashboard_full_history(start_date, end_date) -> None:
@@ -93,6 +95,127 @@ def _record_alert_once(
             st.info(message)
         else:
             st.success(message)
+
+
+def _fuel_label(df: pd.DataFrame, item_id: int | None) -> str:
+    if item_id is None:
+        return "Novo abastecimento"
+    row = _get_row_by_id(df, item_id)
+    if row is None:
+        return "Registro ?"
+    ordered = _with_display_order(df)
+    selected = ordered[ordered["id"] == int(item_id)]
+    registro = int(selected.iloc[0]["registro"]) if not selected.empty else 0
+    status = "Tanque cheio" if bool(row.get("tanque_cheio", False)) else "Parcial"
+    return f"Registro {registro} | {row.get('data', '-') } | {status}"
+
+
+def _set_fuel_form_fields(df: pd.DataFrame, selected_id: int | None) -> None:
+    row = _get_row_by_id(df, selected_id)
+    st.session_state["fuel_data"] = pd.to_datetime(row.get("data"), errors="coerce").date() if row is not None and pd.notna(pd.to_datetime(row.get("data"), errors="coerce")) else pd.Timestamp.today().date()
+    st.session_state["fuel_odometro"] = float(row.get("odometro", 0.0) or 0.0) if row is not None else 0.0
+    st.session_state["fuel_litros"] = float(row.get("litros", 0.0) or 0.0) if row is not None else 0.0
+    st.session_state["fuel_valor_total"] = float(row.get("valor_total", 0.0) or 0.0) if row is not None else 0.0
+    st.session_state["fuel_tanque_cheio"] = bool(row.get("tanque_cheio", False)) if row is not None else False
+    tipo = str(row.get("tipo_combustivel", "") if row is not None else "").strip()
+    st.session_state["fuel_tipo_combustivel"] = tipo if tipo in FUEL_TYPES else FUEL_TYPES[0]
+    st.session_state["fuel_observacao"] = str(row.get("observacao", "") if row is not None else "")
+    st.session_state["fuel_confirm_delete"] = False
+
+
+def _render_fuel_control(df_controle_litros: pd.DataFrame) -> None:
+    titulo_secao("Abastecimentos")
+    df = df_controle_litros.copy()
+    if "data" in df.columns:
+        df["data"] = pd.to_datetime(df["data"], errors="coerce")
+    if not df.empty and "id" in df.columns:
+        df = df.sort_values(by=["data", "id"], ascending=[False, False]).reset_index(drop=True)
+
+    options = [None] + (df["id"].astype(int).tolist() if "id" in df.columns else [])
+    _ensure_selected_option("fuel_selected_id", options)
+    selected_id = st.selectbox("Abastecimento", options=options, format_func=lambda x: _fuel_label(df, x), key="fuel_selected_id")
+    last_selected = st.session_state.get("fuel_last_selected_id")
+    if selected_id != last_selected:
+        _set_fuel_form_fields(df, selected_id)
+        st.session_state["fuel_last_selected_id"] = selected_id
+
+    with st.form("fuel_control_form"):
+        data = st.date_input("Data do abastecimento", key="fuel_data")
+        col1, col2 = st.columns(2)
+        with col1:
+            odometro = st.number_input("Odômetro", min_value=0.0, step=1.0, key="fuel_odometro")
+            litros = st.number_input("Litros", min_value=0.0, step=0.1, key="fuel_litros")
+        with col2:
+            valor_total = st.number_input("Valor total", min_value=0.0, step=0.01, key="fuel_valor_total")
+            tanque_cheio = st.checkbox("Tanque cheio", key="fuel_tanque_cheio")
+        tipo_combustivel = st.selectbox("Tipo de combustível", options=FUEL_TYPES, key="fuel_tipo_combustivel")
+        observacao = st.text_input("Observação", key="fuel_observacao")
+        confirmar_exclusao = st.checkbox("Confirmo a exclusão deste abastecimento", key="fuel_confirm_delete")
+        col_save, col_update, col_delete = st.columns(3)
+        salvar = col_save.form_submit_button("Salvar (novo)")
+        atualizar = col_update.form_submit_button("Atualizar")
+        excluir = col_delete.form_submit_button("Excluir")
+
+        try:
+            if salvar:
+                service.criar_controle_litros(
+                    data.isoformat(),
+                    float(litros),
+                    odometro=float(odometro) if odometro > 0 else None,
+                    valor_total=float(valor_total),
+                    tanque_cheio=bool(tanque_cheio),
+                    tipo_combustivel=tipo_combustivel,
+                    observacao=observacao,
+                )
+                st.success("Abastecimento salvo.")
+                _reset_fields(["fuel_selected_id", "fuel_last_selected_id", "fuel_confirm_delete"])
+                st.rerun()
+            if atualizar:
+                if selected_id is None:
+                    st.warning("Selecione um abastecimento para atualizar.")
+                else:
+                    service.atualizar_controle_litros(
+                        int(selected_id),
+                        data.isoformat(),
+                        float(litros),
+                        odometro=float(odometro) if odometro > 0 else None,
+                        valor_total=float(valor_total),
+                        tanque_cheio=bool(tanque_cheio),
+                        tipo_combustivel=tipo_combustivel,
+                        observacao=observacao,
+                    )
+                    st.success("Abastecimento atualizado.")
+                    st.rerun()
+            if excluir:
+                if selected_id is None:
+                    st.warning("Selecione um abastecimento para excluir.")
+                elif not confirmar_exclusao:
+                    st.warning("Confirme a exclusão para continuar.")
+                else:
+                    service.deletar_controle_litros(int(selected_id))
+                    st.success("Abastecimento excluído.")
+                    _reset_fields(["fuel_selected_id", "fuel_last_selected_id", "fuel_confirm_delete"])
+                    st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+
+    if df.empty:
+        show_empty_data("Nenhum abastecimento cadastrado.")
+        return
+    tabela = _with_display_order(df)
+    tabela["data"] = pd.to_datetime(tabela["data"], errors="coerce").dt.date
+    for col in ["litros", "odometro"]:
+        if col in tabela.columns:
+            tabela[col] = pd.to_numeric(tabela[col], errors="coerce").fillna(0.0).map(lambda x: f"{x:.1f}")
+    if "valor_total" in tabela.columns:
+        tabela["valor_total"] = pd.to_numeric(tabela["valor_total"], errors="coerce").fillna(0.0).apply(formatar_moeda)
+    if "tanque_cheio" in tabela.columns:
+        tabela["tanque_cheio"] = tabela["tanque_cheio"].map(lambda x: "Sim" if bool(x) else "Não")
+    st.dataframe(
+        tabela[[col for col in ["registro", "data", "odometro", "litros", "valor_total", "tanque_cheio", "tipo_combustivel", "observacao"] if col in tabela.columns]],
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 def pagina_dashboard() -> None:
@@ -206,12 +329,14 @@ def pagina_dashboard() -> None:
     lucro_km = float(lucro_total / km_remunerado) if km_remunerado > 0 else 0.0
     km_remunerado_pct = float((km_remunerado / km_total_rodado) * 100.0) if km_total_rodado > 0 else 0.0
     km_nao_remunerado_pct = float(100.0 - km_remunerado_pct) if km_total_rodado > 0 else 0.0
-    litros_combustivel = 0.0
-    if not df_controle_litros_f.empty and "litros" in df_controle_litros_f.columns:
-        litros_combustivel = float(pd.to_numeric(df_controle_litros_f["litros"], errors="coerce").fillna(0.0).sum())
+    fuel_snapshot = service.fuel_consumption_snapshot(start_ts, end_base)
+    litros_combustivel = float(fuel_snapshot["litros_total_abastecidos"])
+    litros_trechos_fechados = float(fuel_snapshot["litros_trechos_fechados"])
+    km_trechos_fechados = float(fuel_snapshot["km_trechos_fechados"])
+    trechos_fechados = int(fuel_snapshot["segment_count"])
+    consumo_km_l = float(fuel_snapshot["consumo_km_l"])
     if litros_combustivel <= 0:
         litros_combustivel = service.metrics.litros_combustivel_total(df_despesas_negocio)
-    consumo_km_l = float(km_total_rodado / litros_combustivel) if litros_combustivel > 0 else 0.0
 
     total_aportes_periodo = float(df_investimentos[df_investimentos["aporte"] > 0]["aporte"].sum()) if not df_investimentos.empty else 0.0
     total_retiradas_invest = float(abs(df_investimentos[df_investimentos["aporte"] < 0]["aporte"].sum())) if not df_investimentos.empty else 0.0
@@ -241,7 +366,7 @@ def pagina_dashboard() -> None:
         st.caption(
             "KM remunerado vem prioritariamente da Jornada. KM total rodado vem do Controle histórico por período "
             "e, quando não existir, do cálculo derivado da Jornada com hodômetro; controles legados entram só como fallback. "
-            "Consumo médio = KM total rodado / litros abastecidos (Controle de Litros; fallback: despesas de combustível)."
+            "Consumo real (km/L) é calculado por trechos fechados entre dois abastecimentos com tanque cheio."
         )
         render_kpi_grid(
             [
@@ -251,7 +376,9 @@ def pagina_dashboard() -> None:
                 ("% KM remunerado", format_percent(km_remunerado_pct), None),
                 ("% KM não remunerado", format_percent(km_nao_remunerado_pct), None),
                 ("Litros abastecidos", f"{litros_combustivel:,.2f} L".replace(",", "X").replace(".", ",").replace("X", "."), None),
-                ("Consumo médio", f"{consumo_km_l:.2f} km/L", None),
+                ("Consumo real", f"{consumo_km_l:.2f} km/L", f"Trechos fechados: {trechos_fechados}"),
+                ("KM em trechos fechados", f"{km_trechos_fechados:,.2f} km".replace(",", "X").replace(".", ",").replace("X", "."), None),
+                ("Litros em trechos fechados", f"{litros_trechos_fechados:,.2f} L".replace(",", "X").replace(".", ",").replace("X", "."), None),
                 ("Despesa total", format_currency(despesa_total), "Macro: negócio + pessoal"),
             ]
         )
@@ -388,3 +515,5 @@ def pagina_dashboard() -> None:
             key_prefix="despesas_preview",
             empty_message="Sem despesas no período selecionado.",
         )
+
+    _render_fuel_control(df_controle_litros)
