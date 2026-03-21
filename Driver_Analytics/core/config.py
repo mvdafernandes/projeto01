@@ -52,7 +52,6 @@ def _get_secret(key: str, default: str = "") -> str:
     return str(value).strip() if value is not None else default
 
 
-@cache_data
 def get_settings() -> Settings:
     """Load effective settings once per cache cycle."""
 

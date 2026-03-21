@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import os
 import pathlib
 import py_compile
 import sys
@@ -78,6 +79,54 @@ class RegressionTests(unittest.TestCase):
             with patch("core.build_info.subprocess.run") as run_mock:
                 run_mock.return_value.stdout = "abcdef12\n"
                 self.assertEqual(build_info.get_build_id(), "abcdef12")
+
+    def test_get_settings_reflects_environment_changes_without_stale_cache(self):
+        from core.config import get_settings
+
+        original = {key: os.environ.get(key) for key in ("SUPABASE_URL", "SUPABASE_KEY", "APP_DB_MODE")}
+        try:
+            os.environ["SUPABASE_URL"] = "https://one.supabase.co"
+            os.environ["SUPABASE_KEY"] = "sb_secret_one"
+            os.environ["APP_DB_MODE"] = "remote"
+            first = get_settings()
+
+            os.environ["SUPABASE_URL"] = "https://two.supabase.co"
+            os.environ["SUPABASE_KEY"] = "sb_secret_two"
+            second = get_settings()
+        finally:
+            for key, value in original.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        self.assertEqual(first.supabase_url, "https://one.supabase.co")
+        self.assertEqual(second.supabase_url, "https://two.supabase.co")
+        self.assertEqual(second.supabase_key, "sb_secret_two")
+
+    def test_get_supabase_client_uses_effective_settings_each_call(self):
+        from core.config import Settings
+        from core.database import get_supabase_client
+
+        settings_one = Settings(
+            supabase_url="https://one.supabase.co",
+            supabase_key="sb_secret_one",
+            app_db_mode="remote",
+        )
+        settings_two = Settings(
+            supabase_url="https://two.supabase.co",
+            supabase_key="sb_secret_two",
+            app_db_mode="remote",
+        )
+
+        with patch("core.database.get_settings", side_effect=[settings_one, settings_two]), patch(
+            "core.database._create_supabase_client", side_effect=["client-one", "client-two"]
+        ) as create_mock:
+            self.assertEqual(get_supabase_client(), "client-one")
+            self.assertEqual(get_supabase_client(), "client-two")
+
+        self.assertEqual(create_mock.call_args_list[0].args, ("https://one.supabase.co", "sb_secret_one"))
+        self.assertEqual(create_mock.call_args_list[1].args, ("https://two.supabase.co", "sb_secret_two"))
 
     def test_visual_record_numbering_is_descending_and_gapless(self):
         import pandas as pd

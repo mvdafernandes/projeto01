@@ -42,6 +42,24 @@ def is_backend_supabase_key(key: str | None = None) -> bool:
 
 
 @cache_resource
+def _create_supabase_client(supabase_url: str, supabase_key: str):
+    """Create a cached Supabase client keyed by effective credentials."""
+
+    parsed = urlparse(str(supabase_url or "").strip())
+    if not parsed.scheme or not parsed.netloc or parsed.netloc.startswith("."):
+        return None
+
+    try:
+        from supabase import create_client
+    except Exception:
+        return None
+
+    try:
+        return create_client(str(supabase_url).strip(), str(supabase_key).strip())
+    except Exception:
+        return None
+
+
 def get_supabase_client():
     """Return cached Supabase client when credentials are valid."""
 
@@ -52,17 +70,4 @@ def get_supabase_client():
         if settings.app_db_mode == "remote":
             raise RuntimeError("APP_DB_MODE=remote exige SUPABASE_URL/SUPABASE_KEY válidos.")
         return None
-
-    parsed = urlparse(settings.supabase_url)
-    if not parsed.scheme or not parsed.netloc or parsed.netloc.startswith("."):
-        return None
-
-    try:
-        from supabase import create_client
-    except Exception:
-        return None
-
-    try:
-        return create_client(settings.supabase_url, settings.supabase_key)
-    except Exception:
-        return None
+    return _create_supabase_client(settings.supabase_url, settings.supabase_key)
