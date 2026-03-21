@@ -10,6 +10,7 @@ import streamlit as st
 
 from UI.cadastros_ui import _ensure_selected_option, _reset_fields
 from UI.components import render_kpi_grid, show_empty_data, titulo_secao
+from services.work_day_messages import work_day_bootstrap_message
 from services.work_day_service import WorkDayService
 
 
@@ -29,10 +30,6 @@ EVENT_LABELS = {
     "manual_edit": "Edição manual",
     "manual_complete": "Complemento manual",
 }
-WORK_DAY_MIGRATION_FILE = "sql/migrations/20260316130000__add_work_days_module.sql"
-WORK_KM_MIGRATION_FILE = "sql/migrations/20260317090000__add_daily_goal_and_work_km_periods.sql"
-
-
 def _safe_dt(value):
     parsed = pd.to_datetime(value, errors="coerce")
     if pd.isna(parsed):
@@ -218,16 +215,6 @@ def _event_summary(value) -> str:
             formatted = str(raw)
         parts.append(f"{key}: {formatted}")
     return " | ".join(parts) if parts else "-"
-
-
-def _work_day_bootstrap_message(exc: Exception) -> str:
-    message = str(exc or "")
-    if "work_days" in message or "work_day_events" in message or "work_km_periods" in message:
-        return (
-            "O modulo Jornada ainda nao esta disponivel neste ambiente. "
-            f"Aplique as migrations `{WORK_DAY_MIGRATION_FILE}` e `{WORK_KM_MIGRATION_FILE}` no projeto Supabase usado pelo deploy e reinicie o app."
-        )
-    return f"Falha ao carregar Jornada: {message}"
 
 
 def _render_current_status(jornadas: list[dict]) -> dict | None:
@@ -648,7 +635,7 @@ def pagina_jornada() -> None:
         jornadas = service.listar_jornadas()
         periodos = service.listar_km_periodos()
     except Exception as exc:
-        st.error(_work_day_bootstrap_message(exc))
+        st.error(work_day_bootstrap_message(exc))
         st.stop()
     aberta = _render_current_status(jornadas)
 

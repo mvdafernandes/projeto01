@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from UI.jornada_ui import _work_day_bootstrap_message
+from services.work_day_messages import work_day_bootstrap_message
 from services.work_day_service import WorkDayService
 
 
@@ -245,7 +245,7 @@ class WorkDayServiceTests(unittest.TestCase):
         self.assertEqual(updated_second["work_day"]["km_nao_remunerado_antes"], 10.0)
 
     def test_bootstrap_message_indica_migration_pendente(self):
-        message = _work_day_bootstrap_message(RuntimeError("Falha ao consultar work_days no Supabase: relation \"public.work_days\" does not exist"))
+        message = work_day_bootstrap_message(RuntimeError("Falha ao consultar work_days no Supabase: relation \"public.work_days\" does not exist"))
         self.assertIn("20260316130000__add_work_days_module.sql", message)
         self.assertIn("20260317090000__add_daily_goal_and_work_km_periods.sql", message)
         self.assertIn("Jornada", message)
