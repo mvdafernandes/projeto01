@@ -17,7 +17,7 @@ except Exception:  # pragma: no cover - allows service imports without Streamlit
     st = None
 
 from core.config import get_settings
-from core.database import get_supabase_client, get_supabase_key_role, is_backend_supabase_key
+from core.database import get_supabase_client, get_supabase_client_status, get_supabase_key_role, is_backend_supabase_key
 from core.security.passwords import hash_password, legacy_hash_password, needs_password_upgrade, verify_password
 
 
@@ -224,9 +224,9 @@ def _check_remote_auth_schema() -> tuple[bool, str]:
             f"A chave configurada parece ter role `{role_label}`. "
             "Configure `SUPABASE_KEY` com `service_role` ou `sb_secret_...` antes de tentar logar.",
         )
-    client = get_supabase_client()
+    client, client_detail = get_supabase_client_status()
     if not client:
-        return False, "Autenticação exige Supabase remoto. Configure SUPABASE_URL/SUPABASE_KEY e APP_DB_MODE=remote."
+        return False, f"Autenticação remota indisponível. {client_detail or 'Verifique SUPABASE_URL/SUPABASE_KEY e APP_DB_MODE=remote.'}"
     try:
         client.table("usuarios").select("id").limit(1).execute()
     except Exception as exc:
@@ -633,13 +633,14 @@ def login_required() -> bool:
     schema_ok, schema_msg = _check_remote_auth_schema()
     if not schema_ok:
         st_runtime.error(schema_msg)
-        st_runtime.caption(
-            "Execute as migrations em `sql/supabase_migration_2026_02_14.sql` e "
-            "`sql/migrations/20260218_0900__security_sessions_user_ownership.sql` e "
-            "`sql/migrations/20260316100000__harden_auth_tables_backend_only.sql` e "
-            "`sql/migrations/20260313_0900__reenable_rls_and_harden_privileges.sql` e "
-            "`sql/migrations/20260316090000__align_rls_with_custom_auth_backend.sql`."
-        )
+        if "public.usuarios" in schema_msg or "public.auth_sessions" in schema_msg:
+            st_runtime.caption(
+                "Execute as migrations em `sql/supabase_migration_2026_02_14.sql` e "
+                "`sql/migrations/20260218_0900__security_sessions_user_ownership.sql` e "
+                "`sql/migrations/20260316100000__harden_auth_tables_backend_only.sql` e "
+                "`sql/migrations/20260313_0900__reenable_rls_and_harden_privileges.sql` e "
+                "`sql/migrations/20260316090000__align_rls_with_custom_auth_backend.sql`."
+            )
         st_runtime.stop()
 
     if not state["authenticated"] and state["session_id"] and state["session_token"]:

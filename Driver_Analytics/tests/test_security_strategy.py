@@ -148,10 +148,10 @@ class SecurityStrategyTests(unittest.TestCase):
 
     @patch("core.auth.is_backend_supabase_key", return_value=True)
     @patch("core.auth.get_supabase_key_role", return_value="service_role")
-    @patch("core.auth.get_supabase_client")
-    def test_auth_schema_check_only_touches_backend_auth_tables(self, get_client_mock, _key_role_mock, _backend_key_mock):
+    @patch("core.auth.get_supabase_client_status")
+    def test_auth_schema_check_only_touches_backend_auth_tables(self, get_client_status_mock, _key_role_mock, _backend_key_mock):
         client = _RecordingClient({"usuarios": [{"id": 1}], "auth_sessions": [{"session_id": "s1"}]})
-        get_client_mock.return_value = client
+        get_client_status_mock.return_value = (client, "")
 
         ok, message = auth._check_remote_auth_schema()
 

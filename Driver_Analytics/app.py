@@ -7,7 +7,7 @@ import streamlit as st
 from core.auth import get_logged_user_id, get_logged_username, login_required, render_logout_button
 from core.build_info import get_build_id
 from core.config import get_settings
-from core.database import get_supabase_client
+from core.database import get_supabase_client_status
 from UI.components import aplicar_estilo_global, render_hero_banner
 
 
@@ -21,11 +21,12 @@ try:
     if settings.app_db_mode != "remote":
         st.error("Segurança: defina APP_DB_MODE=remote para evitar fallback local de autenticação.")
         st.stop()
-    if get_supabase_client() is None:
-        st.error("Falha ao conectar no Supabase. Configure SUPABASE_URL/SUPABASE_KEY válidos.")
+    client, detail = get_supabase_client_status()
+    if client is None:
+        st.error(f"Falha ao conectar no Supabase. {detail or 'Configure SUPABASE_URL/SUPABASE_KEY válidos.'}")
         st.stop()
-except Exception:
-    st.error("Não foi possível validar a conexão com Supabase remoto.")
+except Exception as exc:
+    st.error(f"Não foi possível validar a conexão com Supabase remoto. {exc}")
     st.stop()
 
 username = get_logged_username()

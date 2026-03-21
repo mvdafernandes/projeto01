@@ -9,6 +9,9 @@ from urllib.parse import urlparse
 from core.config import cache_resource, get_settings
 
 
+_LAST_SUPABASE_CLIENT_ERROR = ""
+
+
 def _decode_jwt_payload(token: str) -> dict:
     parts = str(token or "").split(".")
     if len(parts) != 3:
@@ -51,23 +54,55 @@ def _create_supabase_client(supabase_url: str, supabase_key: str):
 
     try:
         from supabase import create_client
-    except Exception:
+    except Exception as exc:
+        _set_last_supabase_client_error(f"Falha ao importar SDK Supabase: {exc}")
         return None
 
     try:
         return create_client(str(supabase_url).strip(), str(supabase_key).strip())
-    except Exception:
+    except Exception as exc:
+        _set_last_supabase_client_error(f"Falha ao criar cliente Supabase: {exc}")
         return None
+
+
+def _set_last_supabase_client_error(message: str) -> None:
+    global _LAST_SUPABASE_CLIENT_ERROR
+    _LAST_SUPABASE_CLIENT_ERROR = str(message or "").strip()
+
+
+def get_supabase_client_error() -> str:
+    return _LAST_SUPABASE_CLIENT_ERROR
+
+
+def get_supabase_client_status() -> tuple[object | None, str]:
+    """Return client plus human-readable reason when unavailable."""
+
+    settings = get_settings()
+    if settings.app_db_mode == "local":
+        return None, "APP_DB_MODE=local desabilita o uso do Supabase remoto."
+    if not settings.supabase_url or not settings.supabase_key:
+        if settings.app_db_mode == "remote":
+            missing = []
+            if not settings.supabase_url:
+                missing.append("SUPABASE_URL")
+            if not settings.supabase_key:
+                missing.append("SUPABASE_KEY")
+            return None, f"APP_DB_MODE=remote exige configuração válida de {', '.join(missing)}."
+        return None, ""
+    parsed = urlparse(settings.supabase_url)
+    if not parsed.scheme or not parsed.netloc or parsed.netloc.startswith("."):
+        return None, f"SUPABASE_URL inválida: `{settings.supabase_url}`."
+    _set_last_supabase_client_error("")
+    client = _create_supabase_client(settings.supabase_url, settings.supabase_key)
+    if client is None:
+        return None, get_supabase_client_error() or "Cliente Supabase indisponível."
+    return client, ""
 
 
 def get_supabase_client():
     """Return cached Supabase client when credentials are valid."""
 
-    settings = get_settings()
-    if settings.app_db_mode == "local":
-        return None
-    if not settings.supabase_url or not settings.supabase_key:
-        if settings.app_db_mode == "remote":
-            raise RuntimeError("APP_DB_MODE=remote exige SUPABASE_URL/SUPABASE_KEY válidos.")
-        return None
-    return _create_supabase_client(settings.supabase_url, settings.supabase_key)
+    client, detail = get_supabase_client_status()
+    if client is None and detail and get_settings().app_db_mode == "remote":
+        raise RuntimeError(detail)
+    return client

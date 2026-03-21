@@ -128,6 +128,30 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(create_mock.call_args_list[0].args, ("https://one.supabase.co", "sb_secret_one"))
         self.assertEqual(create_mock.call_args_list[1].args, ("https://two.supabase.co", "sb_secret_two"))
 
+    def test_supabase_client_status_reports_missing_remote_configuration_precisely(self):
+        from core.config import Settings
+        from core.database import get_supabase_client_status
+
+        with patch("core.database.get_settings", return_value=Settings(app_db_mode="remote", supabase_url="", supabase_key="")):
+            client, detail = get_supabase_client_status()
+
+        self.assertIsNone(client)
+        self.assertIn("SUPABASE_URL", detail)
+        self.assertIn("SUPABASE_KEY", detail)
+
+    def test_supabase_client_status_reports_invalid_url(self):
+        from core.config import Settings
+        from core.database import get_supabase_client_status
+
+        with patch(
+            "core.database.get_settings",
+            return_value=Settings(app_db_mode="remote", supabase_url="not-a-url", supabase_key="sb_secret_x"),
+        ):
+            client, detail = get_supabase_client_status()
+
+        self.assertIsNone(client)
+        self.assertIn("SUPABASE_URL inválida", detail)
+
     def test_visual_record_numbering_is_descending_and_gapless(self):
         import pandas as pd
         from UI.cadastros_ui import _display_record_number, _receita_label, _with_display_order
