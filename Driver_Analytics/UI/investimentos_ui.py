@@ -45,6 +45,16 @@ TIPO_MOVIMENTACAO_LABELS = {
 }
 
 
+def _signed_aporte(row: pd.Series) -> float:
+    aporte = float(pd.to_numeric(pd.Series([row.get("aporte", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+    tipo = str(row.get("tipo_movimentacao", "") or "").strip().upper()
+    if tipo == "RETIRADA":
+        return -abs(aporte)
+    if tipo == "APORTE":
+        return abs(aporte)
+    return aporte
+
+
 def _prepare_investimentos(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
     for col in [
@@ -73,6 +83,7 @@ def _prepare_investimentos(df: pd.DataFrame) -> pd.DataFrame:
     work.loc[~work["tipo_movimentacao"].isin(TIPO_MOVIMENTACAO_LABELS.keys()), "tipo_movimentacao"] = (
         work["aporte"].map(lambda v: "APORTE" if float(v) > 0 else ("RETIRADA" if float(v) < 0 else "RENDIMENTO"))
     )
+    work["aporte_signed"] = work.apply(_signed_aporte, axis=1)
     return work
 
 
@@ -82,6 +93,8 @@ def _analytics_frame(df: pd.DataFrame) -> pd.DataFrame:
         work["patrimonio_total"] = work["patrimonio total"]
     if "total aportado" in work.columns and "total_aportado" not in work.columns:
         work["total_aportado"] = work["total aportado"]
+    if "aporte_signed" in work.columns:
+        work["aporte"] = work["aporte_signed"]
     return work
 
 
@@ -218,7 +231,11 @@ def _render_projection(df: pd.DataFrame) -> None:
     aportes["data_ref"] = pd.to_datetime(aportes.get("data_fim", aportes.get("data")), errors="coerce")
     aportes = aportes.dropna(subset=["data_ref"])
     aportes["aporte"] = pd.to_numeric(aportes["aporte"], errors="coerce").fillna(0.0)
-    aportes = aportes[aportes["aporte"] > 0].copy()
+    if "tipo_movimentacao" in aportes.columns:
+        aportes["tipo_movimentacao"] = aportes["tipo_movimentacao"].fillna("").astype(str).str.upper().str.strip()
+        aportes = aportes[aportes["tipo_movimentacao"] == "APORTE"].copy()
+    else:
+        aportes = aportes[aportes["aporte"] > 0].copy()
 
     media_aportes = 0.0
     if not aportes.empty:
@@ -353,9 +370,9 @@ def _render_forms(df_investimentos: pd.DataFrame) -> None:
             categorias_invest.append(cat)
 
     df_investimentos = _sort_desc_by_id(df_investimentos)
-    df_aportes = _sort_desc_by_id(df_investimentos[df_investimentos["aporte"] > 0].copy()) if not df_investimentos.empty else pd.DataFrame()
-    df_rendimentos = _sort_desc_by_id(df_investimentos[df_investimentos["aporte"] == 0].copy()) if not df_investimentos.empty else pd.DataFrame()
-    df_retiradas = _sort_desc_by_id(df_investimentos[df_investimentos["aporte"] < 0].copy()) if not df_investimentos.empty else pd.DataFrame()
+    df_aportes = _sort_desc_by_id(df_investimentos[df_investimentos["tipo_movimentacao"] == "APORTE"].copy()) if not df_investimentos.empty else pd.DataFrame()
+    df_rendimentos = _sort_desc_by_id(df_investimentos[df_investimentos["tipo_movimentacao"] == "RENDIMENTO"].copy()) if not df_investimentos.empty else pd.DataFrame()
+    df_retiradas = _sort_desc_by_id(df_investimentos[df_investimentos["tipo_movimentacao"] == "RETIRADA"].copy()) if not df_investimentos.empty else pd.DataFrame()
     patrimonio_atual = _patrimonio_atual(df_investimentos)
 
     tab_aporte, tab_rendimento, tab_retirada = st.tabs(["Aportes", "Rendimentos", "Retiradas"])
@@ -568,7 +585,7 @@ def _render_forms(df_investimentos: pd.DataFrame) -> None:
                 st.error(f"Erro ao processar rendimento: {exc}")
 
     with tab_retirada:
-        st.caption("Retiradas reduzem patrimônio. O valor é salvo como aporte negativo.")
+        st.caption("Retiradas reduzem patrimônio. O valor é salvo como movimentação do tipo retirada, sem aporte negativo no banco.")
         categoria_ret = str(st.session_state.get("cad_inv_ret_categoria", "Renda Fixa"))
         categorias_ret = categorias_invest.copy()
         if categoria_ret not in categorias_ret:
@@ -589,7 +606,7 @@ def _render_forms(df_investimentos: pd.DataFrame) -> None:
             retirada = st.number_input("Valor da retirada", min_value=0.0, key="cad_inv_ret_valor")
             selected_id = st.session_state.get("cad_inv_ret_selected_id")
             selected_row = _get_row_by_id(df_retiradas, selected_id)
-            retirada_antiga = abs(float(selected_row["aporte"])) if selected_row is not None else 0.0
+            retirada_antiga = abs(float(selected_row.get("aporte", 0.0))) if selected_row is not None else 0.0
             patrimonio_disponivel = float(patrimonio_atual) + float(retirada_antiga)
             patrimonio_preview = max(0.0, patrimonio_disponivel - float(retirada))
             st.number_input("Rendimento", value=0.0, disabled=True, key="inv_ret_rendimento_zero")
@@ -612,8 +629,8 @@ def _render_forms(df_investimentos: pd.DataFrame) -> None:
                         service.criar_investimento(
                             data_valida.isoformat(),
                             categoria,
-                            float(-retirada),
-                            0.0,
+                            float(retirada),
+                            float(patrimonio_preview),
                             0.0,
                             float(patrimonio_preview),
                             data_inicio=data_valida.isoformat(),
@@ -645,8 +662,8 @@ def _render_forms(df_investimentos: pd.DataFrame) -> None:
                             int(selected_id),
                             data_valida.isoformat(),
                             categoria,
-                            float(-retirada),
-                            0.0,
+                            float(retirada),
+                            float(patrimonio_preview),
                             0.0,
                             float(patrimonio_preview),
                             data_inicio=data_valida.isoformat(),

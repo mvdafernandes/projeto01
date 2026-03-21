@@ -25,6 +25,16 @@ class InvestimentosRepository(BaseRepository):
     ]
     numeric_columns = ["id", "aporte", "total aportado", "rendimento", "patrimonio total"]
 
+    @staticmethod
+    def _signed_aporte(row) -> float:
+        aporte = pd.to_numeric(pd.Series([row.get("aporte", 0.0)]), errors="coerce").fillna(0.0).iloc[0]
+        tipo = str(row.get("tipo_movimentacao", "") or "").strip().upper()
+        if tipo == "RETIRADA":
+            return -abs(float(aporte))
+        if tipo == "APORTE":
+            return abs(float(aporte))
+        return float(aporte)
+
     def listar(self) -> pd.DataFrame:
         data = self._list_remote_rows()
         return self._normalize(pd.DataFrame(data))
@@ -167,7 +177,9 @@ class InvestimentosRepository(BaseRepository):
             work_df["data_ref"] = pd.to_datetime(work_df.get("data"), errors="coerce")
         work_df = work_df.sort_values(by=["data_ref", "id"], ascending=[True, True])
         work_df["aporte"] = pd.to_numeric(work_df["aporte"], errors="coerce").fillna(0.0)
-        work_df["total aportado"] = work_df["aporte"].cumsum()
+        work_df["tipo_movimentacao"] = work_df.get("tipo_movimentacao", pd.Series(dtype="object")).fillna("").astype(str).str.upper().str.strip()
+        work_df["aporte_signed"] = work_df.apply(self._signed_aporte, axis=1)
+        work_df["total aportado"] = work_df["aporte_signed"].cumsum().clip(lower=0.0)
 
         client = self._supabase()
         if client:
@@ -194,11 +206,12 @@ class InvestimentosRepository(BaseRepository):
         work_df = work_df.sort_values(by=["data_ref", "id"], ascending=[True, True])
         work_df["aporte"] = pd.to_numeric(work_df["aporte"], errors="coerce").fillna(0.0)
         work_df["rendimento"] = pd.to_numeric(work_df["rendimento"], errors="coerce").fillna(0.0)
+        work_df["tipo_movimentacao"] = work_df.get("tipo_movimentacao", pd.Series(dtype="object")).fillna("").astype(str).str.upper().str.strip()
 
         patrimonio = 0.0
         valores = []
         for _, row in work_df.iterrows():
-            patrimonio += float(row["aporte"]) + float(row["rendimento"])
+            patrimonio += float(self._signed_aporte(row)) + float(row["rendimento"])
             valores.append(max(0.0, patrimonio))
         work_df["patrimonio total"] = valores
 

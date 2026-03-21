@@ -202,12 +202,16 @@ def pagina_receitas() -> None:
         else:
             df_inv = df_inv[(df_inv[data_inv_col] >= inicio) & (df_inv[data_inv_col] <= fim)] if inicio is not None and fim is not None else pd.DataFrame()
         df_inv["aporte"] = pd.to_numeric(df_inv.get("aporte"), errors="coerce").fillna(0.0)
+        df_inv["tipo_movimentacao"] = df_inv.get("tipo_movimentacao", pd.Series(dtype="object")).fillna("").astype(str).str.upper().str.strip()
+        df_inv.loc[df_inv["tipo_movimentacao"] == "", "tipo_movimentacao"] = df_inv["aporte"].map(
+            lambda v: "APORTE" if float(v) > 0 else ("RETIRADA" if float(v) < 0 else "RENDIMENTO")
+        )
 
     despesa_negocio_total = service.metrics.despesa_total(despesas_negocio)
     despesa_pessoal_total = service.metrics.despesa_total(despesas_pessoais)
     lucro_negocio = float(total - despesa_negocio_total)
-    aportes = float(df_inv[df_inv["aporte"] > 0]["aporte"].sum()) if not df_inv.empty else 0.0
-    retiradas = float(abs(df_inv[df_inv["aporte"] < 0]["aporte"].sum())) if not df_inv.empty else 0.0
+    aportes = float(df_inv[df_inv["tipo_movimentacao"] == "APORTE"]["aporte"].sum()) if not df_inv.empty else 0.0
+    retiradas = float(df_inv[df_inv["tipo_movimentacao"] == "RETIRADA"]["aporte"].sum()) if not df_inv.empty else 0.0
     remuneracao_disponivel = float(lucro_negocio - aportes + retiradas)
     saldo_cpf = float(remuneracao_disponivel - despesa_pessoal_total)
 

@@ -131,6 +131,46 @@ class DashboardServiceRulesTests(unittest.TestCase):
         self.service.investimentos_repo.inserir.assert_not_called()
         self.service.investimentos_repo.recalcular_total_aportado.assert_not_called()
 
+    def test_criar_investimento_distingue_retirada_de_aporte_pelo_tipo(self):
+        self.service.investimentos_repo.listar.return_value = pd.DataFrame(
+            [
+                {
+                    "id": 9,
+                    "data": "2026-02-10",
+                    "categoria": "Renda Fixa",
+                    "tipo_movimentacao": "APORTE",
+                    "aporte": 200.0,
+                    "total aportado": 1200.0,
+                    "rendimento": 0.0,
+                    "patrimonio total": 1210.0,
+                }
+            ]
+        )
+
+        self.service.criar_investimento(
+            "2026-02-10",
+            "Renda Fixa",
+            200.0,
+            800.0,
+            0.0,
+            800.0,
+            tipo_movimentacao="RETIRADA",
+        )
+
+        self.service.investimentos_repo.inserir.assert_called_once_with(
+            "2026-02-10",
+            "Renda Fixa",
+            200.0,
+            800.0,
+            0.0,
+            800.0,
+            data_inicio=None,
+            data_fim=None,
+            tipo_movimentacao="RETIRADA",
+        )
+        self.service.investimentos_repo.recalcular_total_aportado.assert_called_once()
+        self.service.investimentos_repo.recalcular_patrimonio_total.assert_called_once()
+
     def test_atualizar_despesa_ignora_mesmo_id_no_duplicado(self):
         self.service.despesas_repo.listar.return_value = pd.DataFrame(
             [

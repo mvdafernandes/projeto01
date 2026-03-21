@@ -190,6 +190,7 @@ class DashboardService:
         categoria: str,
         aporte: float,
         rendimento: float,
+        tipo_movimentacao: str | None = None,
         ignore_id: int | None = None,
     ) -> bool:
         df = self.listar_investimentos()
@@ -203,6 +204,14 @@ class DashboardService:
         df_cmp["categoria_cmp"] = df_cmp["categoria"].astype(str).str.strip().str.lower()
         df_cmp["aporte_cmp"] = pd.to_numeric(df_cmp["aporte"], errors="coerce").fillna(0.0)
         df_cmp["rendimento_cmp"] = pd.to_numeric(df_cmp["rendimento"], errors="coerce").fillna(0.0)
+        tipo_raw = str(tipo_movimentacao or "").strip().upper()
+        if not tipo_raw:
+            aporte_num = self._to_float(aporte)
+            tipo_raw = "APORTE" if aporte_num > 0 else ("RETIRADA" if aporte_num < 0 else "RENDIMENTO")
+        if "tipo_movimentacao" in df_cmp.columns:
+            df_cmp["tipo_mov_cmp"] = df_cmp["tipo_movimentacao"].fillna("").astype(str).str.upper().str.strip()
+        else:
+            df_cmp["tipo_mov_cmp"] = df_cmp["aporte_cmp"].map(lambda v: "APORTE" if float(v) > 0 else ("RETIRADA" if float(v) < 0 else "RENDIMENTO"))
         if ignore_id is not None and "id" in df_cmp.columns:
             df_cmp = df_cmp[df_cmp["id"] != int(ignore_id)]
         return (
@@ -210,6 +219,7 @@ class DashboardService:
             & (df_cmp["categoria_cmp"] == str(categoria).strip().lower())
             & (df_cmp["aporte_cmp"] == self._to_float(aporte))
             & (df_cmp["rendimento_cmp"] == self._to_float(rendimento))
+            & (df_cmp["tipo_mov_cmp"] == tipo_raw)
         ).any()
 
     def calcular_aporte_investimento(
@@ -826,7 +836,7 @@ class DashboardService:
         tipo_movimentacao: str | None = None,
     ) -> None:
         categoria_ok = str(categoria).strip() or "Renda Fixa"
-        if self._investimento_duplicado(data, categoria_ok, aporte, rendimento):
+        if self._investimento_duplicado(data, categoria_ok, aporte, rendimento, tipo_movimentacao=tipo_movimentacao):
             raise ValueError("Registro já existente.")
         self.investimentos_repo.inserir(
             data,
@@ -856,7 +866,7 @@ class DashboardService:
         tipo_movimentacao: str | None = None,
     ) -> None:
         categoria_ok = str(categoria).strip() or "Renda Fixa"
-        if self._investimento_duplicado(data, categoria_ok, aporte, rendimento, ignore_id=item_id):
+        if self._investimento_duplicado(data, categoria_ok, aporte, rendimento, tipo_movimentacao=tipo_movimentacao, ignore_id=item_id):
             raise ValueError("Registro já existente.")
         self.investimentos_repo.atualizar(
             item_id,
