@@ -97,6 +97,23 @@ def _record_alert_once(
             st.success(message)
 
 
+def _fuel_unit_for_type(tipo_combustivel: str) -> str:
+    return "m³" if str(tipo_combustivel or "").strip().upper() == "GNV" else "L"
+
+
+def _fuel_summary_unit(df_controle_litros: pd.DataFrame) -> str:
+    if df_controle_litros.empty or "tipo_combustivel" not in df_controle_litros.columns:
+        return "L"
+    tipos = {
+        str(value).strip().upper()
+        for value in df_controle_litros["tipo_combustivel"].fillna("").astype(str).tolist()
+        if str(value).strip()
+    }
+    if tipos == {"GNV"}:
+        return "m³"
+    return "L"
+
+
 def _fuel_label(df: pd.DataFrame, item_id: int | None) -> str:
     if item_id is None:
         return "Novo abastecimento"
@@ -125,6 +142,18 @@ def _set_fuel_form_fields(df: pd.DataFrame, selected_id: int | None) -> None:
 
 def _render_fuel_control(df_controle_litros: pd.DataFrame) -> None:
     titulo_secao("Abastecimentos")
+    migrate_col, _ = st.columns([1, 3])
+    if migrate_col.button("Migrar abastecimentos antigos", key="fuel_migrate_legacy"):
+        try:
+            resultado = service.migrar_abastecimentos_legados()
+            st.success(
+                f"Migração concluída: {int(resultado.get('migrados', 0))} importados, {int(resultado.get('ignorados', 0))} ignorados."
+            )
+            _reset_fields(["fuel_selected_id", "fuel_last_selected_id", "fuel_confirm_delete"])
+            st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+
     df = df_controle_litros.copy()
     if "data" in df.columns:
         df["data"] = pd.to_datetime(df["data"], errors="coerce")
@@ -141,14 +170,15 @@ def _render_fuel_control(df_controle_litros: pd.DataFrame) -> None:
 
     with st.form("fuel_control_form"):
         data = st.date_input("Data do abastecimento", key="fuel_data")
+        tipo_combustivel = st.selectbox("Tipo de combustível", options=FUEL_TYPES, key="fuel_tipo_combustivel")
+        unidade_volume = _fuel_unit_for_type(tipo_combustivel)
         col1, col2 = st.columns(2)
         with col1:
             odometro = st.number_input("Odômetro", min_value=0.0, step=1.0, key="fuel_odometro")
-            litros = st.number_input("Litros", min_value=0.0, step=0.1, key="fuel_litros")
+            litros = st.number_input(f"Volume abastecido ({unidade_volume})", min_value=0.0, step=0.1, key="fuel_litros")
         with col2:
             valor_total = st.number_input("Valor total", min_value=0.0, step=0.01, key="fuel_valor_total")
             tanque_cheio = st.checkbox("Tanque cheio", key="fuel_tanque_cheio")
-        tipo_combustivel = st.selectbox("Tipo de combustível", options=FUEL_TYPES, key="fuel_tipo_combustivel")
         observacao = st.text_input("Observação", key="fuel_observacao")
         confirmar_exclusao = st.checkbox("Confirmo a exclusão deste abastecimento", key="fuel_confirm_delete")
         col_save, col_update, col_delete = st.columns(3)
@@ -204,15 +234,20 @@ def _render_fuel_control(df_controle_litros: pd.DataFrame) -> None:
         return
     tabela = _with_display_order(df)
     tabela["data"] = pd.to_datetime(tabela["data"], errors="coerce").dt.date
-    for col in ["litros", "odometro"]:
-        if col in tabela.columns:
-            tabela[col] = pd.to_numeric(tabela[col], errors="coerce").fillna(0.0).map(lambda x: f"{x:.1f}")
+    if "litros" in tabela.columns:
+        tabela["volume"] = [
+            f"{float(value or 0.0):.1f} {_fuel_unit_for_type(tipo)}"
+            for value, tipo in zip(tabela["litros"], tabela.get("tipo_combustivel", pd.Series([""] * len(tabela))))
+        ]
+        tabela = tabela.drop(columns=["litros"])
+    if "odometro" in tabela.columns:
+        tabela["odometro"] = pd.to_numeric(tabela["odometro"], errors="coerce").fillna(0.0).map(lambda x: f"{x:.1f}")
     if "valor_total" in tabela.columns:
         tabela["valor_total"] = pd.to_numeric(tabela["valor_total"], errors="coerce").fillna(0.0).apply(formatar_moeda)
     if "tanque_cheio" in tabela.columns:
         tabela["tanque_cheio"] = tabela["tanque_cheio"].map(lambda x: "Sim" if bool(x) else "Não")
     st.dataframe(
-        tabela[[col for col in ["registro", "data", "odometro", "litros", "valor_total", "tanque_cheio", "tipo_combustivel", "observacao"] if col in tabela.columns]],
+        tabela[[col for col in ["registro", "data", "odometro", "volume", "valor_total", "tanque_cheio", "tipo_combustivel", "observacao"] if col in tabela.columns]],
         use_container_width=True,
         hide_index=True,
     )
@@ -330,6 +365,7 @@ def pagina_dashboard() -> None:
     km_remunerado_pct = float((km_remunerado / km_total_rodado) * 100.0) if km_total_rodado > 0 else 0.0
     km_nao_remunerado_pct = float(100.0 - km_remunerado_pct) if km_total_rodado > 0 else 0.0
     fuel_snapshot = service.fuel_consumption_snapshot(start_ts, end_base)
+    fuel_unit = _fuel_summary_unit(df_controle_litros_f)
     litros_combustivel = float(fuel_snapshot["litros_total_abastecidos"])
     litros_trechos_fechados = float(fuel_snapshot["litros_trechos_fechados"])
     km_trechos_fechados = float(fuel_snapshot["km_trechos_fechados"])
@@ -366,7 +402,7 @@ def pagina_dashboard() -> None:
         st.caption(
             "KM remunerado vem prioritariamente da Jornada. KM total rodado vem do Controle histórico por período "
             "e, quando não existir, do cálculo derivado da Jornada com hodômetro; controles legados entram só como fallback. "
-            "Consumo real (km/L) é calculado por trechos fechados entre dois abastecimentos com tanque cheio."
+            f"Consumo real (km/{fuel_unit}) é calculado por trechos fechados entre dois abastecimentos com tanque cheio."
         )
         render_kpi_grid(
             [
@@ -375,10 +411,10 @@ def pagina_dashboard() -> None:
                 ("KM não remunerado", f"{km_nao_remunerado:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), None),
                 ("% KM remunerado", format_percent(km_remunerado_pct), None),
                 ("% KM não remunerado", format_percent(km_nao_remunerado_pct), None),
-                ("Litros abastecidos", f"{litros_combustivel:,.2f} L".replace(",", "X").replace(".", ",").replace("X", "."), None),
-                ("Consumo real", f"{consumo_km_l:.2f} km/L", f"Trechos fechados: {trechos_fechados}"),
+                ("Volume abastecido", f"{litros_combustivel:,.2f} {fuel_unit}".replace(",", "X").replace(".", ",").replace("X", "."), None),
+                ("Consumo real", f"{consumo_km_l:.2f} km/{fuel_unit}", f"Trechos fechados: {trechos_fechados}"),
                 ("KM em trechos fechados", f"{km_trechos_fechados:,.2f} km".replace(",", "X").replace(".", ",").replace("X", "."), None),
-                ("Litros em trechos fechados", f"{litros_trechos_fechados:,.2f} L".replace(",", "X").replace(".", ",").replace("X", "."), None),
+                ("Volume em trechos fechados", f"{litros_trechos_fechados:,.2f} {fuel_unit}".replace(",", "X").replace(".", ",").replace("X", "."), None),
                 ("Despesa total", format_currency(despesa_total), "Macro: negócio + pessoal"),
             ]
         )

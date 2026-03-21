@@ -66,8 +66,32 @@ class DashboardService:
         return bool(value)
 
     @staticmethod
+    def _normalize_text(value) -> str:
+        return " ".join(str(value or "").strip().split())
+
+    @staticmethod
     def _normalize_title(value: str) -> str:
         return " ".join(str(value).strip().split()).title()
+
+    @classmethod
+    def _is_fuel_category(cls, value) -> bool:
+        normalized = cls._normalize_text(value).casefold()
+        return normalized in {"combustível", "combustivel"}
+
+    @classmethod
+    def _infer_fuel_type(cls, observacao: str) -> str:
+        text = cls._normalize_text(observacao).casefold()
+        if "gnv" in text:
+            return "GNV"
+        if "diesel" in text:
+            return "Diesel"
+        if "etanol" in text or "alcool" in text or "álcool" in text:
+            return "Etanol"
+        if "gasolina" in text:
+            return "Gasolina"
+        if "flex" in text:
+            return "Flex"
+        return ""
 
     def listar_categorias_despesas(self) -> list[str]:
         """Return normalized list of expense categories."""
@@ -250,6 +274,63 @@ class DashboardService:
 
     def listar_controle_litros(self) -> pd.DataFrame:
         return self.controle_litros_repo.listar()
+
+    def migrar_abastecimentos_legados(self) -> dict[str, int]:
+        df_despesas = self.listar_despesas()
+        df_controle_litros = self.listar_controle_litros()
+
+        if df_despesas.empty:
+            return {"migrados": 0, "ignorados": 0}
+
+        work = df_despesas.copy()
+        if "categoria" not in work.columns:
+            return {"migrados": 0, "ignorados": int(len(work))}
+        work["categoria_norm"] = work["categoria"].map(self._normalize_text).str.casefold()
+        work["litros"] = pd.to_numeric(work.get("litros"), errors="coerce").fillna(0.0)
+        work["valor"] = pd.to_numeric(work.get("valor"), errors="coerce").fillna(0.0)
+        work["data_norm"] = pd.to_datetime(work.get("data"), errors="coerce").dt.date.astype(str)
+        work["observacao_norm"] = work.get("observacao", pd.Series(dtype="object")).fillna("").astype(str).map(self._normalize_text)
+        work = work[(work["categoria_norm"].isin({"combustível", "combustivel"})) & (work["litros"] > 0)]
+        if work.empty:
+            return {"migrados": 0, "ignorados": 0}
+
+        existing_keys: set[tuple[str, float, float, str]] = set()
+        if not df_controle_litros.empty:
+            existing = df_controle_litros.copy()
+            existing["data_norm"] = pd.to_datetime(existing.get("data"), errors="coerce").dt.date.astype(str)
+            existing["litros_norm"] = pd.to_numeric(existing.get("litros"), errors="coerce").fillna(0.0).round(3)
+            existing["valor_norm"] = pd.to_numeric(existing.get("valor_total"), errors="coerce").fillna(0.0).round(2)
+            existing["observacao_norm"] = existing.get("observacao", pd.Series(dtype="object")).fillna("").astype(str).map(self._normalize_text)
+            existing_keys = {
+                (row["data_norm"], float(row["litros_norm"]), float(row["valor_norm"]), row["observacao_norm"])
+                for _, row in existing.iterrows()
+            }
+
+        migrados = 0
+        ignorados = 0
+        work = work.sort_values(by=["data", "id"], ascending=[True, True], na_position="last")
+        for _, row in work.iterrows():
+            key = (
+                row["data_norm"],
+                round(float(row["litros"]), 3),
+                round(float(row["valor"]), 2),
+                row["observacao_norm"],
+            )
+            if key in existing_keys:
+                ignorados += 1
+                continue
+            self.controle_litros_repo.inserir(
+                data=row["data_norm"],
+                litros=float(row["litros"]),
+                odometro=None,
+                valor_total=float(row["valor"]),
+                tanque_cheio=False,
+                tipo_combustivel=self._infer_fuel_type(row.get("observacao", "")),
+                observacao=str(row.get("observacao", "") or ""),
+            )
+            existing_keys.add(key)
+            migrados += 1
+        return {"migrados": migrados, "ignorados": ignorados}
 
     def fuel_consumption_snapshot(self, start_date, end_date) -> dict[str, float | int]:
         start_ts = pd.to_datetime(start_date, errors="coerce")

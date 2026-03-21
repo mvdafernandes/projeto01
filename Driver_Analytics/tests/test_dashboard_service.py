@@ -264,6 +264,60 @@ class DashboardServiceRulesTests(unittest.TestCase):
         self.assertEqual(snapshot["segment_count"], 0)
         self.assertEqual(snapshot["consumo_km_l"], 0.0)
 
+    def test_migrar_abastecimentos_legados_importa_somente_combustivel_sem_duplicar(self):
+        self.service.despesas_repo.listar.return_value = pd.DataFrame(
+            [
+                {
+                    "id": 1,
+                    "data": "2026-03-01",
+                    "categoria": "Combustível",
+                    "valor": 120.5,
+                    "observacao": "GNV posto A",
+                    "litros": 18.0,
+                },
+                {
+                    "id": 2,
+                    "data": "2026-03-02",
+                    "categoria": "Manutenção",
+                    "valor": 50.0,
+                    "observacao": "",
+                    "litros": 0.0,
+                },
+                {
+                    "id": 3,
+                    "data": "2026-03-03",
+                    "categoria": "Combustivel",
+                    "valor": 200.0,
+                    "observacao": "Gasolina comum",
+                    "litros": 30.0,
+                },
+            ]
+        )
+        self.service.controle_litros_repo.listar.return_value = pd.DataFrame(
+            [
+                {
+                    "id": 10,
+                    "data": "2026-03-03",
+                    "litros": 30.0,
+                    "valor_total": 200.0,
+                    "observacao": "Gasolina comum",
+                }
+            ]
+        )
+
+        resultado = self.service.migrar_abastecimentos_legados()
+
+        self.assertEqual(resultado, {"migrados": 1, "ignorados": 1})
+        self.service.controle_litros_repo.inserir.assert_called_once_with(
+            data="2026-03-01",
+            litros=18.0,
+            odometro=None,
+            valor_total=120.5,
+            tanque_cheio=False,
+            tipo_combustivel="GNV",
+            observacao="GNV posto A",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
