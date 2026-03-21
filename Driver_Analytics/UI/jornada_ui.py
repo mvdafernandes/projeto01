@@ -475,7 +475,7 @@ def _render_manual_edit(jornadas: list[dict]) -> None:
         if "new_value" in events_df.columns:
             events_df["new_value"] = events_df["new_value"].apply(_event_summary)
         columns = [col for col in ["event_type", "event_timestamp", "km_value", "old_value", "new_value", "notes"] if col in events_df.columns]
-        st.dataframe(events_df[columns], width="stretch", hide_index=True)
+        st.dataframe(events_df[columns], use_container_width=True, hide_index=True)
 
 
 def _render_km_control() -> None:
@@ -549,7 +549,7 @@ def _render_km_control() -> None:
             df[col] = df[col].apply(_format_km)
     st.dataframe(
         df[[col for col in ["registro", "start_date", "end_date", "km_total_periodo", "km_remunerado_periodo", "km_nao_remunerado_periodo", "notes"] if col in df.columns]],
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -626,7 +626,7 @@ def _render_history(jornadas: list[dict]) -> None:
         "updated_at",
     ]
     columns = [col for col in preferred if col in df.columns]
-    st.dataframe(df[columns], width="stretch", hide_index=True)
+    st.dataframe(df[columns], use_container_width=True, hide_index=True)
 
 
 def pagina_jornada() -> None:

@@ -220,7 +220,7 @@ def pagina_despesas() -> None:
             tabela_fixas = grupo.copy()
             tabela_fixas["valor"] = tabela_fixas["valor"].apply(formatar_moeda)
             tabela_fixas["percentual"] = tabela_fixas["percentual"].map(lambda x: f"{x:.1f}%")
-            st.dataframe(tabela_fixas.rename(columns={"subcat": "subcategoria"}), width="stretch", hide_index=True)
+            st.dataframe(tabela_fixas.rename(columns={"subcat": "subcategoria"}), use_container_width=True, hide_index=True)
 
         titulo_secao(f"Registros ({esfera_label})")
         df_tabela = _with_display_order(df_scope)
@@ -236,7 +236,7 @@ def pagina_despesas() -> None:
         if "esfera_despesa" in df_tabela.columns:
             mapa_esfera = {"NEGOCIO": "Negócio", "PESSOAL": "Pessoal"}
             df_tabela["esfera_despesa"] = df_tabela["esfera_despesa"].map(lambda x: mapa_esfera.get(str(x).upper(), "Negócio"))
-        st.dataframe(df_tabela, width="stretch", hide_index=True)
+        st.dataframe(df_tabela, use_container_width=True, hide_index=True)
 
     with tab_negocio:
         _render_aba_escopo(df_filtrado[df_filtrado["esfera_despesa"] == "NEGOCIO"].copy(), "Negócio", "negocio")

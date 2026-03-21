@@ -687,7 +687,7 @@ def _render_table(df: pd.DataFrame) -> None:
             tabela[col] = pd.to_numeric(tabela[col], errors="coerce").fillna(0.0).apply(formatar_moeda)
     if "tipo_movimentacao" in tabela.columns:
         tabela["tipo_movimentacao"] = tabela["tipo_movimentacao"].map(TIPO_MOVIMENTACAO_LABELS).fillna("Movimentação")
-    st.dataframe(tabela, width="stretch", hide_index=True)
+    st.dataframe(tabela, use_container_width=True, hide_index=True)
 
 
 def pagina_investimentos() -> None:

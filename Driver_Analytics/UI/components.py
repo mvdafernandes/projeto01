@@ -323,10 +323,10 @@ def render_table_preview(
         return
 
     preview = df.loc[:, safe_cols].head(rows).copy()
-    st.dataframe(preview, width="stretch", hide_index=True)
+    st.dataframe(preview, use_container_width=True, hide_index=True)
 
     if st.button("Ver tabela completa", key=f"{key_prefix}_btn"):
-        st.dataframe(df, width="stretch", hide_index=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
 
 # Backward compatibility alias

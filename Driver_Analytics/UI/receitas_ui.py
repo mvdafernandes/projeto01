@@ -162,7 +162,7 @@ def pagina_receitas() -> None:
     for drop_col in ["km", "km_rodado_total", "tempo trabalhado"]:
         if drop_col in df_tabela.columns:
             df_tabela = df_tabela.drop(columns=[drop_col])
-    st.dataframe(df_tabela, width="stretch", hide_index=True)
+    st.dataframe(df_tabela, use_container_width=True, hide_index=True)
 
     titulo_secao("Remuneração (CPF)")
     st.caption(

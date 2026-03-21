@@ -224,7 +224,7 @@ def pagina_dashboard() -> None:
     with tab_cnpj:
         titulo_secao("Resumo do Negócio")
         st.caption("CNPJ: receitas e despesas do negócio, sem considerar despesas pessoais.")
-        _render_kpi_grid(
+        render_kpi_grid(
             [
                 ("Receita total", format_currency(receita_total), None),
                 ("Despesa negócio", format_currency(despesa_negocio), None),
@@ -243,7 +243,7 @@ def pagina_dashboard() -> None:
             "e, quando não existir, do cálculo derivado da Jornada com hodômetro; controles legados entram só como fallback. "
             "Consumo médio = KM total rodado / litros abastecidos (Controle de Litros; fallback: despesas de combustível)."
         )
-        _render_kpi_grid(
+        render_kpi_grid(
             [
                 ("KM remunerado", f"{km_remunerado:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), None),
                 ("KM total rodado", f"{km_total_rodado:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), None),
@@ -257,7 +257,7 @@ def pagina_dashboard() -> None:
         )
 
         titulo_secao("Consistência Operacional")
-        _render_kpi_grid(
+        render_kpi_grid(
             [
                 ("Maior sequência trabalhada", f"{int(consistencia['longest_work_streak'])} dias", f"Atual: {int(consistencia['current_work_streak'])} dias"),
                 ("Maior sequência sem trabalhar", f"{int(consistencia['longest_absence_streak'])} dias", f"Atual: {int(consistencia['current_absence_streak'])} dias"),
@@ -330,7 +330,7 @@ def pagina_dashboard() -> None:
             "CPF: remuneração do período = lucro do negócio. "
             "Aportes em investimentos reduzem a remuneração disponível e retiradas aumentam."
         )
-        _render_kpi_grid(
+        render_kpi_grid(
             [
                 ("Remuneração bruta", format_currency(remuneracao_bruta), "Lucro do negócio no período"),
                 ("Aportes em investimentos", format_currency(total_aportes_periodo), "Desconta da remuneração"),
