@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import secrets
 import uuid
@@ -24,10 +25,24 @@ _AUTH_STATE: dict[str, Any] = {}
 _AUTH_COOKIE_NAME = "driver_analytics_session"
 _AUTH_COOKIE_SYNC_KEY = "_auth_cookie_sync_value"
 _AUTH_COOKIE_APPLIED_KEY = "_auth_cookie_applied_value"
+_AUTH_RATE_LIMIT_TABLE = "auth_rate_limits"
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _session_signing_secret() -> str:
+    settings = get_settings()
+    return (
+        str(settings.app_session_secret).strip()
+        or str(settings.supabase_key).strip()
+        or "driver_analytics_session_secret"
+    )
+
+
+def _urlsafe_b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
 
 
 def _normalize_username(value: str) -> str:
@@ -75,16 +90,26 @@ def _is_secure_context() -> bool:
 def _encode_cookie_session(session_id: str, raw_token: str) -> str:
     payload = {"sid": str(session_id), "tok": str(raw_token)}
     raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+    payload_b64 = _urlsafe_b64(raw)
+    signature = hmac.new(_session_signing_secret().encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).digest()
+    return f"{payload_b64}.{_urlsafe_b64(signature)}"
 
 
 def _decode_cookie_session(value: str) -> tuple[str, str] | None:
     raw = str(value or "").strip()
     if not raw:
         return None
-    padding = "=" * (-len(raw) % 4)
+    if "." not in raw:
+        return None
+    payload_raw, signature_raw = raw.split(".", 1)
+    expected_sig = _urlsafe_b64(
+        hmac.new(_session_signing_secret().encode("utf-8"), payload_raw.encode("utf-8"), hashlib.sha256).digest()
+    )
+    if not hmac.compare_digest(signature_raw, expected_sig):
+        return None
+    padding = "=" * (-len(payload_raw) % 4)
     try:
-        decoded = base64.urlsafe_b64decode(f"{raw}{padding}".encode("utf-8")).decode("utf-8")
+        decoded = base64.urlsafe_b64decode(f"{payload_raw}{padding}".encode("utf-8")).decode("utf-8")
         payload = json.loads(decoded)
     except Exception:
         return None
@@ -277,6 +302,9 @@ def _get_logged_user() -> dict[str, Any] | None:
 
 
 def _get_rate_limit(action: str, key: str) -> tuple[int, datetime | None]:
+    remote = _get_remote_rate_limit(action, key)
+    if remote is not None:
+        return remote
     store = _session_state().get("auth_rate_limits_store", {})
     if not isinstance(store, dict):
         return 0, None
@@ -303,6 +331,58 @@ def _set_rate_limit(action: str, key: str, failures: int, blocked_until: datetim
         "last_failure_at": _utc_now().isoformat(),
     }
     state["auth_rate_limits_store"] = store
+    _set_remote_rate_limit(action, key, failures, blocked_until)
+
+
+def _rate_limit_key_hash(action: str, key: str) -> str:
+    raw = f"{str(action).strip().lower()}:{str(key).strip().lower()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _get_remote_rate_limit(action: str, key: str) -> tuple[int, datetime | None] | None:
+    client = get_supabase_client()
+    if not client:
+        return None
+    try:
+        rows = (
+            client.table(_AUTH_RATE_LIMIT_TABLE)
+            .select("failures,blocked_until")
+            .eq("action", str(action).strip().lower())
+            .eq("key_hash", _rate_limit_key_hash(action, key))
+            .limit(1)
+            .execute()
+            .data
+        )
+    except Exception:
+        return None
+    if not rows:
+        return 0, None
+    row = dict(rows[0])
+    blocked_until = None
+    raw_blocked_until = row.get("blocked_until")
+    if raw_blocked_until:
+        try:
+            blocked_until = datetime.fromisoformat(str(raw_blocked_until))
+        except Exception:
+            blocked_until = None
+    return int(row.get("failures", 0) or 0), blocked_until
+
+
+def _set_remote_rate_limit(action: str, key: str, failures: int, blocked_until: datetime | None) -> None:
+    client = get_supabase_client()
+    if not client:
+        return
+    payload = {
+        "action": str(action).strip().lower(),
+        "key_hash": _rate_limit_key_hash(action, key),
+        "failures": int(failures),
+        "blocked_until": blocked_until.isoformat() if blocked_until else None,
+        "last_failure_at": _utc_now().isoformat(),
+    }
+    try:
+        client.table(_AUTH_RATE_LIMIT_TABLE).upsert(payload, on_conflict="action,key_hash").execute()
+    except Exception:
+        return
 
 
 def _rate_limited(action: str, key: str) -> bool:

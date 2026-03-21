@@ -12,6 +12,7 @@ from UI.components import (
     format_percent,
     formatar_moeda,
     render_graph,
+    render_kpi_grid,
     render_kpi,
     render_table_preview,
     show_empty_data,
@@ -64,16 +65,6 @@ def _apply_period_interval(df: pd.DataFrame, start_col: str, end_col: str, start
     work[end_col] = pd.to_datetime(work[end_col], errors="coerce")
     work = work.dropna(subset=[start_col, end_col])
     return work[(work[start_col] <= end) & (work[end_col] >= start)]
-
-
-def _render_kpi_grid(kpis: list[tuple[str, str | int | float, str | None]]) -> None:
-    for index in range(0, len(kpis), 2):
-        cols = st.columns(2)
-        bloco = kpis[index : index + 2]
-        for i, item in enumerate(bloco):
-            titulo, valor, subtitulo = item
-            with cols[i]:
-                render_kpi(titulo, valor, subtitulo)
 
 
 def _weekday_metric(label: str, count: int) -> str:

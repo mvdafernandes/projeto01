@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 
 try:
     from argon2 import PasswordHasher
@@ -73,7 +74,6 @@ def verify_password(plain: str, hashed: str) -> bool:
             return bool(bcrypt.checkpw(plain_s.encode("utf-8"), raw_hash.encode("utf-8")))
         except Exception:
             return False
-    if raw_hash == legacy_hash_password(plain_s):
+    if hmac.compare_digest(raw_hash, legacy_hash_password(plain_s)):
         return True
-    # Legacy plaintext fallback for upgrade-in-place.
-    return raw_hash == plain_s
+    return False

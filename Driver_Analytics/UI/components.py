@@ -279,6 +279,18 @@ def render_kpi(titulo: str, valor: str | int | float, subtitulo: str | None = No
     )
 
 
+def render_kpi_grid(items: list[tuple[str, str | int | float, str | None]], columns: int = 2) -> None:
+    """Render KPI cards in a compact grid that stays readable on mobile."""
+
+    safe_columns = max(1, min(int(columns), 2))
+    for index in range(0, len(items), safe_columns):
+        cols = st.columns(safe_columns)
+        for offset, item in enumerate(items[index : index + safe_columns]):
+            titulo, valor, subtitulo = item
+            with cols[offset]:
+                render_kpi(titulo, valor, subtitulo)
+
+
 def render_graph(fig: go.Figure, height: int = 360, show_legend: bool = False) -> None:
     """Render Plotly graph with mobile-friendly defaults."""
 

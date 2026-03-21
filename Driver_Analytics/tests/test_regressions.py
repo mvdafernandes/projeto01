@@ -150,6 +150,15 @@ class RegressionTests(unittest.TestCase):
         self.assertIn("using (false)", source)
         self.assertIn("with check (false)", source)
 
+    def test_auth_rate_limit_migration_is_backend_only(self):
+        migration_path = PROJECT_ROOT / "sql" / "migrations" / "20260321100000__add_auth_rate_limits.sql"
+        source = migration_path.read_text(encoding="utf-8")
+
+        self.assertIn("create table if not exists public.auth_rate_limits", source)
+        self.assertIn("enable row level security", source)
+        self.assertIn("grant select, insert, update, delete on table public.auth_rate_limits to service_role", source)
+        self.assertIn("create policy auth_rate_limits_backend_only", source)
+
 
 if __name__ == "__main__":
     unittest.main()

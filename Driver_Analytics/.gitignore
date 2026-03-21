@@ -1,15 +1,28 @@
 # Python cache
 __pycache__/
 *.py[cod]
+.venv/
+venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # macOS
 .DS_Store
+__MACOSX/
 
 # Env / local runtime
 .env
 .env.*
 .streamlit/
 *.db
+*.sqlite
+*.sqlite3
+*.log
+*.tmp
+*.temp
+.ipynb_checkpoints/
+Driver_Analytics.zip

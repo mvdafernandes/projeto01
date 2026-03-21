@@ -7,7 +7,7 @@ import streamlit as st
 
 from services.dashboard_service import DashboardService
 from UI.cadastros_ui import _with_display_order, render_receitas_cadastro
-from UI.components import format_currency, format_percent, formatar_moeda, render_kpi, show_empty_data, titulo_secao
+from UI.components import format_currency, format_percent, formatar_moeda, render_kpi_grid, show_empty_data, titulo_secao
 
 
 service = DashboardService()
@@ -98,17 +98,14 @@ def pagina_receitas() -> None:
             except Exception as exc:
                 st.error(str(exc))
 
-    row1 = st.columns(2)
-    with row1[0]:
-        render_kpi("Total", format_currency(total))
-    with row1[1]:
-        render_kpi("Média diária", format_currency(media))
-
-    row2 = st.columns(2)
-    with row2[0]:
-        render_kpi("Dias trabalhados", dias)
-    with row2[1]:
-        render_kpi("% Meta", format_percent(meta_pct), f"Meta diária: {format_currency(daily_goal)}")
+    render_kpi_grid(
+        [
+            ("Total", format_currency(total), None),
+            ("Média diária", format_currency(media), None),
+            ("Dias trabalhados", dias, None),
+            ("% Meta", format_percent(meta_pct), f"Meta diária: {format_currency(daily_goal)}"),
+        ]
+    )
 
     titulo_secao("Evolução Diária")
     if not df_filtrado.empty and {"data", "valor"}.issubset(df_filtrado.columns):
@@ -146,15 +143,12 @@ def pagina_receitas() -> None:
                 .rename_axis("periodo")
             )
 
-            col_sem, col_men, col_anu = st.columns(3)
-            with col_sem:
-                st.markdown("**Semanal**")
+            tab_sem, tab_men, tab_anu = st.tabs(["Semanal", "Mensal", "Anual"])
+            with tab_sem:
                 st.line_chart(semanal)
-            with col_men:
-                st.markdown("**Mensal**")
+            with tab_men:
                 st.line_chart(mensal)
-            with col_anu:
-                st.markdown("**Anual**")
+            with tab_anu:
                 st.line_chart(anual)
     else:
         show_empty_data("Sem dados para evolução semanal, mensal e anual.")
@@ -217,20 +211,15 @@ def pagina_receitas() -> None:
     remuneracao_disponivel = float(lucro_negocio - aportes + retiradas)
     saldo_cpf = float(remuneracao_disponivel - despesa_pessoal_total)
 
-    col_r1, col_r2, col_r3 = st.columns(3)
-    with col_r1:
-        render_kpi("Remuneração bruta", format_currency(lucro_negocio))
-    with col_r2:
-        render_kpi("Remuneração disponível", format_currency(remuneracao_disponivel))
-    with col_r3:
-        render_kpi("Saldo CPF", format_currency(saldo_cpf))
-
-    col_r4, col_r5, col_r6 = st.columns(3)
-    with col_r4:
-        render_kpi("Despesa pessoal", format_currency(despesa_pessoal_total))
-    with col_r5:
-        render_kpi("Aportes", format_currency(aportes))
-    with col_r6:
-        render_kpi("Retiradas", format_currency(retiradas))
+    render_kpi_grid(
+        [
+            ("Remuneração bruta", format_currency(lucro_negocio), None),
+            ("Remuneração disponível", format_currency(remuneracao_disponivel), None),
+            ("Saldo CPF", format_currency(saldo_cpf), None),
+            ("Despesa pessoal", format_currency(despesa_pessoal_total), None),
+            ("Aportes", format_currency(aportes), None),
+            ("Retiradas", format_currency(retiradas), None),
+        ]
+    )
 
     render_receitas_cadastro()

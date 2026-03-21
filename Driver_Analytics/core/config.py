@@ -19,6 +19,7 @@ class Settings:
     supabase_key: str = ""
     app_env: str = "dev"
     app_db_mode: str = "remote"
+    app_session_secret: str = ""
     session_ttl_days: int = 7
     session_rotation_hours: int = 24
 
@@ -75,6 +76,7 @@ def get_settings() -> Settings:
         supabase_key=(os.getenv("SUPABASE_KEY") or _get_secret("SUPABASE_KEY", "")).strip(),
         app_env=app_env,
         app_db_mode=app_db_mode,
+        app_session_secret=(os.getenv("APP_SESSION_SECRET") or _get_secret("APP_SESSION_SECRET", "")).strip(),
         session_ttl_days=max(1, session_ttl_days),
         session_rotation_hours=max(1, session_rotation_hours),
     )

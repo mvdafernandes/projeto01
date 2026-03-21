@@ -1,6 +1,6 @@
 import pytest
 
-from core.security.passwords import PasswordHasher, bcrypt, hash_password, needs_password_upgrade, verify_password
+from core.security.passwords import PasswordHasher, bcrypt, hash_password, legacy_hash_password, needs_password_upgrade, verify_password
 
 
 def test_hash_and_verify_password_roundtrip():
@@ -16,4 +16,9 @@ def test_hash_and_verify_password_roundtrip():
 
 def test_legacy_plaintext_upgrade_needed():
     assert needs_password_upgrade("admin") is True
-    assert verify_password("admin", "admin") is True
+    assert verify_password("admin", "admin") is False
+
+
+def test_legacy_sha256_still_supported_for_upgrade_flow():
+    raw = "admin"
+    assert verify_password(raw, legacy_hash_password(raw)) is True

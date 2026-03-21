@@ -8,7 +8,7 @@ import streamlit as st
 
 from services.dashboard_service import DashboardService
 from UI.cadastros_ui import _with_display_order, render_despesas_cadastro
-from UI.components import format_currency, formatar_moeda, render_kpi, show_empty_data, titulo_secao
+from UI.components import format_currency, formatar_moeda, render_kpi, render_kpi_grid, show_empty_data, titulo_secao
 
 
 service = DashboardService()
@@ -109,15 +109,14 @@ def pagina_despesas() -> None:
     total_negocio = service.metrics.despesa_total(despesas_negocio)
     total_pessoal = service.metrics.despesa_total(despesas_pessoal)
 
-    kpis = st.columns(4)
-    with kpis[0]:
-        render_kpi("Despesa total", format_currency(total))
-    with kpis[1]:
-        render_kpi("Despesa média", format_currency(media))
-    with kpis[2]:
-        render_kpi("Despesa negócio", format_currency(total_negocio))
-    with kpis[3]:
-        render_kpi("Despesa pessoal", format_currency(total_pessoal))
+    render_kpi_grid(
+        [
+            ("Despesa total", format_currency(total), None),
+            ("Despesa média", format_currency(media), None),
+            ("Despesa negócio", format_currency(total_negocio), None),
+            ("Despesa pessoal", format_currency(total_pessoal), None),
+        ]
+    )
     st.caption("Despesa média = valor médio por lançamento registrado no período selecionado.")
     st.caption("Visão micro do negócio: foque em 'Despesa negócio'. Visão macro de gestão: use 'Despesa total' (negócio + pessoal).")
 
@@ -134,13 +133,13 @@ def pagina_despesas() -> None:
     total_rec_negocio = float(pd.to_numeric(rec_negocio.get("valor"), errors="coerce").fillna(0.0).sum()) if not rec_negocio.empty else 0.0
     total_rec_pessoal = float(pd.to_numeric(rec_pessoal.get("valor"), errors="coerce").fillna(0.0).sum()) if not rec_pessoal.empty else 0.0
 
-    cols_rec = st.columns(3)
-    with cols_rec[0]:
-        render_kpi("Recorrentes no período", format_currency(total_recorrente))
-    with cols_rec[1]:
-        render_kpi("Projeção semanal", format_currency(proj_semana))
-    with cols_rec[2]:
-        render_kpi("Projeção mensal", format_currency(proj_mes))
+    render_kpi_grid(
+        [
+            ("Recorrentes no período", format_currency(total_recorrente), None),
+            ("Projeção semanal", format_currency(proj_semana), None),
+            ("Projeção mensal", format_currency(proj_mes), None),
+        ]
+    )
 
     st.caption("Despesas marcadas como recorrentes são projetadas por média diária para semana (7 dias) e mês (30 dias).")
     cols_rec_split = st.columns(2)

@@ -33,7 +33,7 @@ from UI.cadastros_ui import (
     _sync_edit_state,
     _with_display_order,
 )
-from UI.components import format_currency, format_percent, formatar_moeda, render_kpi, show_empty_data, titulo_secao
+from UI.components import format_currency, format_percent, formatar_moeda, render_kpi_grid, show_empty_data, titulo_secao
 from services.dashboard_service import DashboardService
 
 
@@ -146,21 +146,16 @@ def _render_summary(df: pd.DataFrame) -> None:
     cagr = float(calcular_cagr(analytics_df))
     patrimonio_base = float(patrimonio_inicial(analytics_df))
 
-    cols_1 = st.columns(3)
-    with cols_1[0]:
-        render_kpi("Patrimônio atual", format_currency(patrimonio))
-    with cols_1[1]:
-        render_kpi("Total aportado", format_currency(aportado))
-    with cols_1[2]:
-        render_kpi("Lucro acumulado", format_currency(lucro))
-
-    cols_2 = st.columns(3)
-    with cols_2[0]:
-        render_kpi("Rentabilidade", format_percent(rent_pct))
-    with cols_2[1]:
-        render_kpi("CAGR", format_percent(cagr), "Baseado no patrimônio inicial/final")
-    with cols_2[2]:
-        render_kpi("Patrimônio inicial", format_currency(patrimonio_base))
+    render_kpi_grid(
+        [
+            ("Patrimônio atual", format_currency(patrimonio), None),
+            ("Total aportado", format_currency(aportado), None),
+            ("Lucro acumulado", format_currency(lucro), None),
+            ("Rentabilidade", format_percent(rent_pct), None),
+            ("CAGR", format_percent(cagr), "Baseado no patrimônio inicial/final"),
+            ("Patrimônio inicial", format_currency(patrimonio_base), None),
+        ]
+    )
 
 
 def _render_charts(df: pd.DataFrame) -> None:
@@ -238,13 +233,12 @@ def _render_projection(df: pd.DataFrame) -> None:
 
     with sim_auto:
         st.caption("Projeção automática com base no patrimônio atual e na média histórica mensal de aportes da carteira.")
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
             taxa_anual_pct = st.number_input("Taxa anual projetada (%)", min_value=0.0, value=12.0, step=0.5, key="inv_proj_auto_taxa_anual_pct")
         with col2:
             anos = st.number_input("Prazo (anos)", min_value=1, max_value=100, value=10, step=1, key="inv_proj_auto_anos")
-        with col3:
-            meses_extra = st.number_input("Meses adicionais", min_value=0, max_value=11, value=0, step=1, key="inv_proj_auto_meses_extra")
+        meses_extra = st.number_input("Meses adicionais", min_value=0, max_value=11, value=0, step=1, key="inv_proj_auto_meses_extra")
 
         meses = int(anos) * 12 + int(meses_extra)
         taxa_anual = float(taxa_anual_pct) / 100.0
@@ -252,13 +246,13 @@ def _render_projection(df: pd.DataFrame) -> None:
         valor_projetado = float(projecao_com_aporte(analytics_df, taxa_mensal, int(meses), float(media_aportes)))
         ganho_proj = float(valor_projetado - patrimonio_base)
 
-        kpis = st.columns(3)
-        with kpis[0]:
-            render_kpi("Patrimônio projetado", format_currency(valor_projetado))
-        with kpis[1]:
-            render_kpi("Ganho projetado", format_currency(ganho_proj))
-        with kpis[2]:
-            render_kpi("Média mensal de aportes", format_currency(float(media_aportes)))
+        render_kpi_grid(
+            [
+                ("Patrimônio projetado", format_currency(valor_projetado), None),
+                ("Ganho projetado", format_currency(ganho_proj), None),
+                ("Média mensal de aportes", format_currency(float(media_aportes)), None),
+            ]
+        )
 
         valores = []
         for mes in range(0, int(meses) + 1):
@@ -288,13 +282,12 @@ def _render_projection(df: pd.DataFrame) -> None:
 
     with sim_custom:
         st.caption("Projeção personalizada com controle do aporte mensal, mantendo a mesma base de patrimônio atual.")
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
             taxa_custom_pct = st.number_input("Taxa anual personalizada (%)", min_value=0.0, value=12.0, step=0.5, key="inv_proj_custom_taxa_anual_pct")
         with col2:
             anos_custom = st.number_input("Prazo (anos)", min_value=1, max_value=100, value=10, step=1, key="inv_proj_custom_anos")
-        with col3:
-            meses_custom_extra = st.number_input("Meses adicionais", min_value=0, max_value=11, value=0, step=1, key="inv_proj_custom_meses_extra")
+        meses_custom_extra = st.number_input("Meses adicionais", min_value=0, max_value=11, value=0, step=1, key="inv_proj_custom_meses_extra")
 
         aporte_custom = st.number_input(
             "Aporte mensal personalizado",
@@ -310,13 +303,13 @@ def _render_projection(df: pd.DataFrame) -> None:
         valor_custom = float(projecao_com_aporte(analytics_df, taxa_custom_mensal, int(meses_custom), float(aporte_custom)))
         ganho_custom = float(valor_custom - patrimonio_base)
 
-        kpis_custom = st.columns(3)
-        with kpis_custom[0]:
-            render_kpi("Patrimônio projetado", format_currency(valor_custom))
-        with kpis_custom[1]:
-            render_kpi("Ganho projetado", format_currency(ganho_custom))
-        with kpis_custom[2]:
-            render_kpi("Aportes futuros", format_currency(float(aporte_custom) * int(meses_custom)))
+        render_kpi_grid(
+            [
+                ("Patrimônio projetado", format_currency(valor_custom), None),
+                ("Ganho projetado", format_currency(ganho_custom), None),
+                ("Aportes futuros", format_currency(float(aporte_custom) * int(meses_custom)), None),
+            ]
+        )
 
         valores_custom = []
         for mes in range(0, int(meses_custom) + 1):

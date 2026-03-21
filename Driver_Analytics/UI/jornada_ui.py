@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from UI.cadastros_ui import _ensure_selected_option, _reset_fields
-from UI.components import render_kpi, show_empty_data, titulo_secao
+from UI.components import render_kpi_grid, show_empty_data, titulo_secao
 from services.work_day_service import WorkDayService
 
 
@@ -234,35 +234,35 @@ def _render_current_status(jornadas: list[dict]) -> dict | None:
     titulo_secao("Status Atual")
     aberta = next((row for row in jornadas if row.get("status") == "open"), None)
     parcial = next((row for row in jornadas if row.get("status") == "partial"), None)
-    cols = st.columns(4)
     if aberta:
-        with cols[0]:
-            render_kpi("Status", "Em andamento")
-        with cols[1]:
-            render_kpi("Início", _format_dt(aberta.get("start_time")))
-        with cols[2]:
-            render_kpi("KM inicial", _format_km(aberta.get("start_km")))
-        with cols[3]:
-            render_kpi("Observação", aberta.get("notes") or "-")
+        render_kpi_grid(
+            [
+                ("Status", "Em andamento", None),
+                ("Início", _format_dt(aberta.get("start_time")), None),
+                ("KM inicial", _format_km(aberta.get("start_km")), None),
+                ("Observação", aberta.get("notes") or "-", None),
+            ]
+        )
         return aberta
     if parcial:
-        with cols[0]:
-            render_kpi("Status", "Jornada incompleta")
-        with cols[1]:
-            render_kpi("Data", str(parcial.get("work_date") or "-"))
-        with cols[2]:
-            render_kpi("Início", _format_dt(parcial.get("start_time")))
-        with cols[3]:
-            render_kpi("KM inicial", _format_km(parcial.get("start_km")))
+        render_kpi_grid(
+            [
+                ("Status", "Jornada incompleta", None),
+                ("Data", str(parcial.get("work_date") or "-"), None),
+                ("Início", _format_dt(parcial.get("start_time")), None),
+                ("KM inicial", _format_km(parcial.get("start_km")), None),
+            ]
+        )
         st.warning("Existe uma jornada incompleta. Use a seção de complemento/edição para concluir ou corrigir o registro.")
         return parcial
     else:
-        with cols[0]:
-            render_kpi("Status", "Sem jornada aberta")
-        with cols[1]:
-            render_kpi("Hoje", pd.Timestamp.now(tz=APP_TZ).date().isoformat())
-        with cols[2]:
-            render_kpi("Jornadas incompletas", sum(1 for row in jornadas if row.get("status") == "partial"))
+        render_kpi_grid(
+            [
+                ("Status", "Sem jornada aberta", None),
+                ("Hoje", pd.Timestamp.now(tz=APP_TZ).date().isoformat(), None),
+                ("Jornadas incompletas", sum(1 for row in jornadas if row.get("status") == "partial"), None),
+            ]
+        )
     return None
 
 
@@ -657,13 +657,13 @@ def pagina_jornada() -> None:
         total_km_nao_rem = sum(float(row.get("km_nao_remunerado_antes") or 0.0) for row in jornadas)
         total_km_nao_rem += sum(float(row.get("km_nao_remunerado_periodo") or 0.0) for row in periodos)
         total_minutes = sum(int(row.get("worked_minutes_final") or 0) for row in jornadas)
-        cols = st.columns(3)
-        with cols[0]:
-            render_kpi("KM remunerado", _format_km(total_km_rem))
-        with cols[1]:
-            render_kpi("KM não remunerado", _format_km(total_km_nao_rem))
-        with cols[2]:
-            render_kpi("Tempo final", _format_minutes(total_minutes))
+        render_kpi_grid(
+            [
+                ("KM remunerado", _format_km(total_km_rem), None),
+                ("KM não remunerado", _format_km(total_km_nao_rem), None),
+                ("Tempo final", _format_minutes(total_minutes), None),
+            ]
+        )
 
     tab_operacao, tab_controle, tab_historico = st.tabs(["Operação", "Controle", "Histórico"])
 
